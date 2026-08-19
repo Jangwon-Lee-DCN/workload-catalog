@@ -21,5 +21,5 @@ data:
   ue-subnet: 10.1.0.0/16
   dnn: internet
   # Worker node name to schedule UPF on edge worker
-  edge-worker-node: ip-192-168-1-57.ap-northeast-2.compute.internal
+  edge-worker-node: ip-192-168-1-11.ap-southeast-1.compute.internal
   image-upf: free5gc/upf:v3.4.3
