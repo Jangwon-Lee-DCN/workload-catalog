@@ -19,8 +19,8 @@ data:
   # SMF N4 IP — assigned via Multus NAD on ens7 (core-n4 subnet 192.168.11.0/24)
   smf-n4-ip: 192.168.11.176
   # Worker node names for scheduling NF pods
-  core-worker-node: ip-192-168-1-176.ap-northeast-2.compute.internal
-  edge-worker-node: ip-192-168-1-57.ap-northeast-2.compute.internal
+  core-worker-node: ip-192-168-1-10.ap-southeast-1.compute.internal
+  edge-worker-node: ip-192-168-1-11.ap-southeast-1.compute.internal
   # Core services
   nrf-service-name: nrf-service
   nrf-uri: https://nrf-service:8000
