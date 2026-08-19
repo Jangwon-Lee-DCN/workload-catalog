@@ -9,4 +9,4 @@ data:
   # If this changes, also update the matching domain key in the config-domain
   # ConfigMap in serving-core.yaml (Knative uses the IP as a literal map key,
   # which apply-setters cannot rewrite).
-  edge-node-ip: "192.168.1.57"
+  edge-node-ip: "192.168.1.11"
