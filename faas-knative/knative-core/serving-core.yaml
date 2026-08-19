@@ -7756,7 +7756,7 @@ data:
   # NOTE: this key is the literal domain suffix Knative matches on — it must be
   # kept in sync with the edge-node-ip setter by hand (apply-setters can only
   # rewrite map values, not map keys). Update it if the edge node IP changes.
-  "192.168.1.57.sslip.io": ""
+  "192.168.1.11.sslip.io": ""
   _example: |
     ################################
     #                              #
