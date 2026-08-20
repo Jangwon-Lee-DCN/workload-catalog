@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quotascale-controller-sa
+  namespace: quotascale-controller # kpt-set: ${namespace}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quotascale-controller
+rules:
+  - apiGroups: ["dcn.ssu.ac.kr"]
+    resources: ["quotaautoscalers"]
+    verbs: ["get", "watch", "list", "update", "patch"]
+  - apiGroups: ["dcn.ssu.ac.kr"]
+    resources: ["nodescalinginventories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["watch", "list", "get", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["list", "get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["replicationcontrollers"]
+    verbs: ["watch", "list", "get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["watch", "list", "get", "create"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quotascale-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quotascale-controller
+subjects:
+  - kind: ServiceAccount
+    name: quotascale-controller-sa
+    namespace: quotascale-controller # kpt-set: ${namespace}

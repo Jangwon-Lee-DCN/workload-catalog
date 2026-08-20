@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quotascale-controller
+  namespace: quotascale-controller # kpt-set: ${namespace}
+  labels:
+    app.kubernetes.io/name: quotascale-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: quotascale-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: quotascale-controller
+    spec:
+      serviceAccountName: quotascale-controller-sa
+      terminationGracePeriodSeconds: 6
+      containers:
+        - name: quotascale-controller
+          image: ghcr.io/ssu-dcn/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
+          imagePullPolicy: IfNotPresent # kpt-set: ${image-pull-policy}
+          args:
+            - --enable-node-scaling=false # kpt-set: ${enable-node-scaling-arg}
+            - --quota-check-interval=1m # kpt-set: ${quota-check-interval-arg}
+            - --quota-update-interval=1m # kpt-set: ${quota-update-interval-arg}
+          resources:
+            requests:
+              cpu: 200m # kpt-set: ${cpu-request}
+              memory: 2Gi # kpt-set: ${memory-request}
+            limits:
+              cpu: "2" # kpt-set: ${cpu-limit}
+              memory: 2Gi # kpt-set: ${memory-limit}
