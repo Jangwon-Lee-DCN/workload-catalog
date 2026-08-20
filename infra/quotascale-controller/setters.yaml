@@ -8,9 +8,16 @@ data:
   namespace: quotascale-controller
   image-quotascale-controller: ghcr.io/ssu-dcn/quotascale-controller:latest
   image-pull-policy: IfNotPresent
-  quota-check-interval-arg: --quota-check-interval=1m
-  quota-update-interval-arg: --quota-update-interval=1m
-  enable-node-scaling-arg: --enable-node-scaling=false
+  quota-check-interval-arg: --quota-check-interval=10s
+  quota-update-interval-arg: --quota-update-interval=10s
+  enable-node-scaling-arg: --enable-node-scaling=true
+  node-scaling-repo-url-arg: --node-scaling-repo-url=http://13.212.192.49:32100/nephio/workload-cluster.git
+  node-scale-in-delay-arg: --node-scale-in-delay=10s
+  node-scale-in-exempt-namespaces-arg: --node-scale-in-exempt-namespaces=longhorn-system,metallb-system
+  node-scaling-prepared-spares-arg: --node-scaling-prepared-spares=2
+  node-scaling-activated-spares-arg: --node-scaling-activated-spares=1
+  enable-node-scale-in-force-arg: --enable-node-scale-in-force=false
+  gitops-secret-name: quotascale-git-credentials
   cpu-request: 200m
   memory-request: 2Gi
   cpu-limit: "2"

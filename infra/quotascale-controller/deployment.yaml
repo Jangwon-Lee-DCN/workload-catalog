@@ -22,9 +22,26 @@ spec:
           image: ghcr.io/ssu-dcn/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
           imagePullPolicy: IfNotPresent # kpt-set: ${image-pull-policy}
           args:
-            - --enable-node-scaling=false # kpt-set: ${enable-node-scaling-arg}
-            - --quota-check-interval=1m # kpt-set: ${quota-check-interval-arg}
-            - --quota-update-interval=1m # kpt-set: ${quota-update-interval-arg}
+            - --enable-node-scaling=true # kpt-set: ${enable-node-scaling-arg}
+            - --quota-check-interval=10s # kpt-set: ${quota-check-interval-arg}
+            - --quota-update-interval=10s # kpt-set: ${quota-update-interval-arg}
+            - --node-scaling-repo-url=http://13.212.192.49:32100/nephio/workload-cluster.git # kpt-set: ${node-scaling-repo-url-arg}
+            - --node-scale-in-delay=10s # kpt-set: ${node-scale-in-delay-arg}
+            - --node-scale-in-exempt-namespaces=longhorn-system,metallb-system # kpt-set: ${node-scale-in-exempt-namespaces-arg}
+            - --node-scaling-prepared-spares=2 # kpt-set: ${node-scaling-prepared-spares-arg}
+            - --node-scaling-activated-spares=1 # kpt-set: ${node-scaling-activated-spares-arg}
+            - --enable-node-scale-in-force=false # kpt-set: ${enable-node-scale-in-force-arg}
+          env:
+            - name: GITEA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: quotascale-git-credentials # kpt-set: ${gitops-secret-name}
+                  key: username
+            - name: GITEA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: quotascale-git-credentials # kpt-set: ${gitops-secret-name}
+                  key: password
           resources:
             requests:
               cpu: 200m # kpt-set: ${cpu-request}
