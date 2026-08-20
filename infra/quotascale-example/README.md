@@ -10,6 +10,16 @@ the QuotaScale Controller. Both resources target the `default` namespace.
 
 The `QuotaAutoscaler` CRD and QuotaScale Controller must already be installed.
 
+## Argo CD ownership
+
+Both resources have the `argocd.argoproj.io/hook: Skip` annotation. Argo CD
+therefore does not create, update, replace, or prune them during synchronization,
+so values changed by the QuotaScale Controller are not reset to the Git values.
+
+The resources must be created separately (for example with `kpt live apply` or
+`kubectl apply`) before relying on the Argo CD deployment. Remove the `Skip`
+annotation temporarily if Argo CD should perform the initial creation.
+
 ## Setter
 
 | Setter | Default | Description |
