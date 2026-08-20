@@ -7821,6 +7821,7 @@ metadata:
     knative.dev/example-checksum: 632d47dd
     config.kubernetes.io/depends-on: apiextensions.k8s.io/CustomResourceDefinition/services.serving.knative.dev
 data:
+  queueproxy.resource-defaults: "enabled" # kpt-set: ${queueproxy-resource-defaults}
   _example: |-
     ################################
     #                              #

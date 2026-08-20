@@ -1,7 +1,17 @@
 # knative-core
 
 ## Description
-sample description
+
+Knative Serving 1.15 core and Kourier ingress for the edge cluster. Queue-proxy
+resource defaults are enabled so injected sidecars satisfy namespaces that
+enforce CPU and memory requests and limits through `ResourceQuota`.
+
+## Setters
+
+| Setter | Default | Description |
+| --- | --- | --- |
+| `queueproxy-resource-defaults` | `enabled` | Apply default requests and limits to queue-proxy containers |
+| `edge-node-ip` | `192.168.1.11` | Edge worker IP exposed by the Kourier NodePort service |
 
 ## Usage
 

@@ -5,6 +5,8 @@ metadata:
   annotations:
     config.kubernetes.io/local-config: "true"
 data:
+  # Add default CPU and memory requests/limits to the injected queue-proxy.
+  queueproxy-resource-defaults: "enabled"
   # IP of the edge worker node that fronts Kourier ingress (NodePort externalIPs).
   # If this changes, also update the matching domain key in the config-domain
   # ConfigMap in serving-core.yaml (Knative uses the IP as a literal map key,
