@@ -15,7 +15,7 @@ spec:
       labels:
         app.kubernetes.io/name: quotascale-controller
       annotations:
-        quotascale.dcn.ssu.ac.kr/image-revision: "b0b1602" # kpt-set: ${image-revision}
+        quotascale.dcn.ssu.ac.kr/image-revision: "53f81c7" # kpt-set: ${image-revision}
     spec:
       serviceAccountName: quotascale-controller-sa
       terminationGracePeriodSeconds: 6
