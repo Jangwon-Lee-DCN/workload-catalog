@@ -33,7 +33,7 @@ version tag is required.
 | --- | --- | --- |
 | `namespace` | `quotascale-controller` | Controller namespace |
 | `image-quotascale-controller` | `jangwonlee/quotascale-controller:latest` | Controller image |
-| `image-pull-policy` | `IfNotPresent` | Kubernetes image pull policy |
+| `image-pull-policy` | `Always` | Always pull the mutable `latest` image |
 | `quota-check-interval-arg` | `--quota-check-interval=10s` | Periodic utilization check |
 | `quota-update-interval-arg` | `--quota-update-interval=10s` | Per-namespace resize rate limit |
 | `enable-node-scaling-arg` | `--enable-node-scaling=true` | Enable the node-scaling controller |

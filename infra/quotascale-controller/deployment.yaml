@@ -20,7 +20,7 @@ spec:
       containers:
         - name: quotascale-controller
           image: jangwonlee/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
-          imagePullPolicy: IfNotPresent # kpt-set: ${image-pull-policy}
+          imagePullPolicy: Always # kpt-set: ${image-pull-policy}
           args:
             - --enable-node-scaling=true # kpt-set: ${enable-node-scaling-arg}
             - --quota-check-interval=10s # kpt-set: ${quota-check-interval-arg}
