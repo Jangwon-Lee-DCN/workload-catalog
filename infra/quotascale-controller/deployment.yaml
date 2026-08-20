@@ -19,7 +19,7 @@ spec:
       terminationGracePeriodSeconds: 6
       containers:
         - name: quotascale-controller
-          image: ghcr.io/ssu-dcn/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
+          image: jangwonlee/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
           imagePullPolicy: IfNotPresent # kpt-set: ${image-pull-policy}
           args:
             - --enable-node-scaling=true # kpt-set: ${enable-node-scaling-arg}

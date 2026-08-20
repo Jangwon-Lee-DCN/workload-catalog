@@ -6,7 +6,7 @@ metadata:
     config.kubernetes.io/local-config: "true"
 data:
   namespace: quotascale-controller
-  image-quotascale-controller: ghcr.io/ssu-dcn/quotascale-controller:latest
+  image-quotascale-controller: jangwonlee/quotascale-controller:latest
   image-pull-policy: IfNotPresent
   quota-check-interval-arg: --quota-check-interval=10s
   quota-update-interval-arg: --quota-update-interval=10s

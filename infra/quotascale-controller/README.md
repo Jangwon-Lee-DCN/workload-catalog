@@ -20,34 +20,19 @@ The controller manages CPU and memory values on existing `ResourceQuota`
 objects. Create `QuotaAutoscaler` resources separately in each workload
 namespace that should be managed.
 
-## Container image requirement
+## Container image
 
-The upstream project does not currently publish a public container image. The
-default `image-quotascale-controller` value is the intended GHCR location, but
-the image must be built and published before deployment or replaced with an
-accessible image in `setters.yaml`.
-
-Build from the upstream repository:
-
-```bash
-docker build -f build/quotascale-controller/Dockerfile \
-  -t <registry>/quotascale-controller:<tag> .
-docker push <registry>/quotascale-controller:<tag>
-```
-
-Then set:
-
-```yaml
-data:
-  image-quotascale-controller: <registry>/quotascale-controller:<tag>
-```
+The package uses the public Linux AMD64 image
+`jangwonlee/quotascale-controller:latest` from Docker Hub. Override the
+`image-quotascale-controller` setter when a different registry or immutable
+version tag is required.
 
 ## Setters
 
 | Setter | Default | Description |
 | --- | --- | --- |
 | `namespace` | `quotascale-controller` | Controller namespace |
-| `image-quotascale-controller` | `ghcr.io/ssu-dcn/quotascale-controller:latest` | Controller image |
+| `image-quotascale-controller` | `jangwonlee/quotascale-controller:latest` | Controller image |
 | `image-pull-policy` | `IfNotPresent` | Kubernetes image pull policy |
 | `quota-check-interval-arg` | `--quota-check-interval=10s` | Periodic utilization check |
 | `quota-update-interval-arg` | `--quota-update-interval=10s` | Per-namespace resize rate limit |
