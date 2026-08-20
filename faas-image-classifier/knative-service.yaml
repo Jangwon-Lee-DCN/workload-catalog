@@ -13,7 +13,7 @@ spec:
         autoscaling.knative.dev/metric: "concurrency"
         autoscaling.knative.dev/target: "1"
         autoscaling.knative.dev/minScale: "0"
-        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/maxScale: "20"
         autoscaling.knative.dev/scaleDownDelay: "20s"
         autoscaling.knative.dev/initial-scale: "1"
     spec:
@@ -35,8 +35,8 @@ spec:
               value: "3"
           resources:
             requests:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "1Gi"
             limits:
               cpu: "2000m"
               memory: "2Gi"

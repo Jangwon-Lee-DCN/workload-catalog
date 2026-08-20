@@ -23,7 +23,7 @@ spec:
         - method: memory
           value: 70
           targetUtilization: 50
-  min.cpu: "4"
+  min.cpu: "6"
   max.cpu: "25"
-  min.memory: "4Gi"
+  min.memory: "6Gi"
   max.memory: "25Gi"
