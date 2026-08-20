@@ -8,7 +8,7 @@ data:
   namespace: quotascale-controller
   image-quotascale-controller: jangwonlee/quotascale-controller:latest
   image-pull-policy: Always
-  image-revision: "8a67ac0"
+  image-revision: "b0b1602"
   quota-check-interval-arg: --quota-check-interval=10s
   quota-update-interval-arg: --quota-update-interval=10s
   enable-node-scaling-arg: --enable-node-scaling=true
