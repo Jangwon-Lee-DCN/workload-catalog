@@ -1,7 +1,7 @@
 apiVersion: dcn.ssu.ac.kr/v1
 kind: QuotaAutoscaler
 metadata:
-  name: quota-test-a-autoscaler
+  name: quota-autoscaler
   namespace: default # kpt-set: ${namespace}
 spec:
   behavior:
@@ -22,6 +22,6 @@ spec:
           value: 70
           targetUtilization: 50
   min.cpu: "4"
-  max.cpu: "15"
+  max.cpu: "25"
   min.memory: "4Gi"
-  max.memory: "15Gi"
+  max.memory: "25Gi"

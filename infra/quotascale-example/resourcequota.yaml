@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: resource-quota-a
+  name: resource-quota
   namespace: default # kpt-set: ${namespace}
 spec:
   hard:
