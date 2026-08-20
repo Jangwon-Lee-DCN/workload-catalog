@@ -24,6 +24,6 @@ spec:
           value: 70
           targetUtilization: 50
   min.cpu: "6"
-  max.cpu: "25"
+  max.cpu: "50"
   min.memory: "6Gi"
-  max.memory: "25Gi"
+  max.memory: "50Gi"

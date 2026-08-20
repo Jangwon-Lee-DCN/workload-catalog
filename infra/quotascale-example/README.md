@@ -6,7 +6,7 @@ the QuotaScale Controller. Both resources target the `default` namespace.
 ## Resources
 
 - `resourcequota.yaml`: `resource-quota`, initially limited to 6 CPU and 6Gi memory
-- `quotaautoscaler.yaml`: `quota-autoscaler`, scaling between 6 and 25 CPU/Gi
+- `quotaautoscaler.yaml`: `quota-autoscaler`, scaling between 6 and 50 CPU/Gi
 
 The `QuotaAutoscaler` CRD and QuotaScale Controller must already be installed.
 
