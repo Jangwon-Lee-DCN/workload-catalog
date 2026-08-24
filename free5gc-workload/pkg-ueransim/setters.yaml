@@ -5,15 +5,51 @@ metadata:
   annotations:
     config.kubernetes.io/local-config: "true"
 data:
+  source: |
+    def replace_marked_value(line, cfg, supported):
+      marker = "# kpt-set: ${"
+      if marker not in line:
+        return line
+      before, annotation = line.split("# kpt-set:", 1)
+      setter = annotation.split("${", 1)[1].split("}", 1)[0]
+      if setter not in supported:
+        return line
+      trimmed = before.rstrip()
+      if ": " in trimmed:
+        parts = trimmed.split(": ")
+        return ": ".join(parts[:-1]) + ": " + cfg[setter] + " # kpt-set:" + annotation
+      if "- " in trimmed:
+        parts = trimmed.split("- ")
+        return "- ".join(parts[:-1]) + "- " + cfg[setter] + " # kpt-set:" + annotation
+      return line
+
+    def replace_embedded_config(resources, cfg, supported):
+      for resource in resources:
+        if resource.get("kind") != "ConfigMap" or resource.get("metadata", {}).get("name") == "setters":
+          continue
+        data = resource.get("data", {})
+        for key in list(data.keys()):
+          if type(data[key]) != "string":
+            continue
+          lines = data[key].split("\n")
+          for index in range(len(lines)):
+            lines[index] = replace_marked_value(lines[index], cfg, supported)
+          data[key] = "\n".join(lines)
+
+    cfg = ctx.resource_list["functionConfig"]["data"]
+    supported = ["gnb-n2-ip", "gnb-n3-ip", "amf-n2-ip", "upf-n3-ip"]
+    replace_embedded_config(ctx.resource_list["items"], cfg, supported)
   namespace: free5gc
   # gNB N2: edge-n2 subnet (192.168.10.0/24) on ens6
   gnb-n2-ip: 192.168.10.204
   gnb-n2-subnet: "24"
   gnb-n2-gateway: 192.168.10.1
+  gnb-n2-nad-master: ens6
   # gNB N3: edge-n3 subnet (192.168.12.0/24) on ens8
   gnb-n3-ip: 192.168.12.205
   gnb-n3-subnet: "24"
   gnb-n3-gateway: 192.168.12.1
+  gnb-n3-nad-master: ens8
   # AMF N2 IP on core worker
   amf-n2-ip: 192.168.10.200
   # UPF N3 IP on edge worker

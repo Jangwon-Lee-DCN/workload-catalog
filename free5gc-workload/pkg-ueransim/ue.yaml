@@ -70,12 +70,15 @@ spec:
       initContainers:
         - name: wait-for-gnb
           image: busybox:1.36
+          env:
+            - name: GNB_N2_IP
+              value: 192.168.10.204 # kpt-set: ${gnb-n2-ip}
           command:
             - sh
             - -c
             - |
-              until ping -c 1 -W 2 192.168.10.204 >/dev/null 2>&1; do
-                echo "Waiting for gNB (192.168.10.204) to be reachable..."
+              until ping -c 1 -W 2 "$GNB_N2_IP" >/dev/null 2>&1; do
+                echo "Waiting for gNB ($GNB_N2_IP) to be reachable..."
                 sleep 3
               done
               echo "gNB is ready"

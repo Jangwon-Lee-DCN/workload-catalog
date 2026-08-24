@@ -74,15 +74,16 @@ Edit `setters.yaml` and run `kpt fn render` to apply changes:
 | Setter | Default | Description |
 |---|---|---|
 | `namespace` | `free5gc` | Kubernetes namespace for all resources |
-| `gnb-n2-ip` | `192.168.100.30` | gNB N2 (NGAP) interface IP |
+| `gnb-n2-ip` | `192.168.10.204` | gNB N2 (NGAP) interface IP |
 | `gnb-n2-subnet` | `24` | N2 interface subnet prefix length |
-| `gnb-n2-gateway` | `192.168.100.1` | N2 interface default gateway |
-| `gnb-n3-ip` | `192.168.100.31` | gNB N3 (GTP-U) interface IP |
+| `gnb-n2-gateway` | `192.168.10.1` | N2 interface default gateway |
+| `gnb-n2-nad-master` | `ens6` | Host NIC for the gNB N2 ipvlan |
+| `gnb-n3-ip` | `192.168.12.205` | gNB N3 (GTP-U) interface IP |
 | `gnb-n3-subnet` | `24` | N3 interface subnet prefix length |
-| `gnb-n3-gateway` | `192.168.100.1` | N3 interface default gateway |
-| `gnb-nad-master` | `ens3` | Host NIC for macvlan NetworkAttachmentDefinitions |
-| `amf-n2-ip` | `192.168.100.10` | AMF N2 IP (regional cluster) |
-| `upf-n3-ip` | `192.168.100.20` | UPF N3 IP (edge cluster) |
+| `gnb-n3-gateway` | `192.168.12.1` | N3 interface default gateway |
+| `gnb-n3-nad-master` | `ens8` | Host NIC for the gNB N3 ipvlan |
+| `amf-n2-ip` | `192.168.10.200` | AMF N2 IP (regional cluster) |
+| `upf-n3-ip` | `192.168.12.201` | UPF N3 IP (edge cluster) |
 | `plmn-mcc` | `001` | PLMN Mobile Country Code |
 | `plmn-mnc` | `01` | PLMN Mobile Network Code |
 | `tac` | `1` | Tracking Area Code |

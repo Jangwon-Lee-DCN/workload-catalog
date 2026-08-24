@@ -7753,9 +7753,7 @@ metadata:
     knative.dev/example-checksum: 26c09de5
     config.kubernetes.io/depends-on: apiextensions.k8s.io/CustomResourceDefinition/services.serving.knative.dev
 data:
-  # NOTE: this key is the literal domain suffix Knative matches on — it must be
-  # kept in sync with the edge-node-ip setter by hand (apply-setters can only
-  # rewrite map values, not map keys). Update it if the edge node IP changes.
+  # This literal map key is rewritten from edge-node-ip by the Starlark render step.
   "192.168.1.11.sslip.io": ""
   _example: |
     ################################

@@ -40,21 +40,26 @@ Edit `setters.yaml` to match your environment before rendering. The key paramete
 | `plmn-mnc` | `01` | Mobile Network Code |
 | `tac` | `1` | Tracking Area Code |
 
-### AMF N2 Interface (Multus macvlan on ens3)
+### AMF N2 Interface (Multus ipvlan)
 
 | Setter | Default | Description |
 |--------|---------|-------------|
-| `amf-n2-ip` | `192.168.100.10` | Static IP assigned to the AMF N2 macvlan interface |
+| `amf-n2-ip` | `192.168.10.200` | Static IP assigned to the AMF N2 interface |
 | `amf-n2-subnet` | `24` | Prefix length for the N2 subnet |
-| `amf-n2-gateway` | `192.168.100.1` | Default gateway for the N2 interface |
-| `amf-n2-nad-master` | `ens3` | Host NIC to attach the macvlan to |
+| `amf-n2-gateway` | `192.168.10.1` | Default gateway for the N2 interface |
+| `amf-n2-nad-master` | `ens6` | Host NIC to attach the ipvlan to |
 | `amf-port` | `38412` | SCTP port for NGAP |
 
 ### UPF / N4 (PFCP)
 
 | Setter | Default | Description |
 |--------|---------|-------------|
-| `upf-n4-ip` | `192.168.101.20` | N4 IP address of the UPF (edge cluster) |
+| `smf-n4-ip` | `192.168.11.176` | N4 IP address assigned to SMF |
+| `smf-n4-subnet` | `24` | Prefix length for the SMF N4 subnet |
+| `smf-n4-gateway` | `192.168.11.1` | Gateway for the SMF N4 interface |
+| `smf-n4-nad-master` | `ens7` | Host NIC for the SMF N4 ipvlan |
+| `upf-n4-ip` | `192.168.11.202` | N4 IP address of the UPF (edge cluster) |
+| `upf-n3-ip` | `192.168.12.201` | N3 IP address of the UPF (edge cluster) |
 
 ### Slice & DNN
 
@@ -73,6 +78,11 @@ Edit `setters.yaml` to match your environment before rendering. The key paramete
 | `image-tag` | `v3.4.3` | Docker image tag for all free5GC NFs |
 | `storage-class` | `standard` | StorageClass name for MongoDB PVC |
 | `mongodb-uri` | `mongodb://mongodb:27017` | MongoDB connection URI used by NRF/UDR |
+
+The render pipeline applies ordinary YAML setters first, then runs the package's
+Starlark mutator so the same values are also updated inside embedded free5GC
+configuration files. NAD JSON strings are generated from the IP, prefix, gateway,
+and master-interface setters.
 | `nrf-service-name` | `nrf-service` | Kubernetes service name for NRF |
 
 ## Deployment

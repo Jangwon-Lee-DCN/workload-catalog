@@ -13,6 +13,9 @@ enforce CPU and memory requests and limits through `ResourceQuota`.
 | `queueproxy-resource-defaults` | `enabled` | Apply default requests and limits to queue-proxy containers |
 | `edge-node-ip` | `192.168.1.11` | Edge worker IP exposed by the Kourier NodePort service |
 
+`kpt fn render` also derives the Knative `config-domain` sslip.io map key from
+`edge-node-ip`; no manual edit in `serving-core.yaml` is required.
+
 ## Usage
 
 ### Fetch the package

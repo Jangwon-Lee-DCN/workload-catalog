@@ -43,23 +43,29 @@ Edit `setters.yaml` to match your network addressing plan:
 
 ```yaml
 data:
-  upf-n3-ip: 192.168.100.20      # N3 interface IP (GTP-U toward gNB)
+  upf-n3-ip: 192.168.12.201      # N3 interface IP (GTP-U toward gNB)
   upf-n3-subnet: "24"
-  upf-n3-gateway: 192.168.100.1
+  upf-n3-gateway: 192.168.12.1
+  upf-n3-nad-master: ens8
 
-  upf-n4-ip: 192.168.101.20      # N4 interface IP (PFCP toward SMF)
+  upf-n4-ip: 192.168.11.202      # N4 interface IP (PFCP toward SMF)
   upf-n4-subnet: "24"
-  upf-n4-gateway: 192.168.101.1
+  upf-n4-gateway: 192.168.11.1
+  upf-n4-nad-master: ens7
 
-  upf-n6-ip: 192.168.200.10      # N6 interface IP (toward data network)
+  upf-n6-ip: 192.168.13.203      # N6 interface IP (toward data network)
   upf-n6-subnet: "24"
-  upf-n6-gateway: 192.168.200.1
+  upf-n6-gateway: 192.168.13.1
+  upf-n6-nad-master: ens9
 
-  upf-nad-master: ens3           # Host NIC name for macvlan
   ue-subnet: 10.1.0.0/16        # UE IP pool allocated by SMF
   dnn: internet                  # Data Network Name
   image-tag: v3.4.3             # UPF container image tag
 ```
+
+`kpt fn render` propagates these values both to the NAD JSON strings and to the
+embedded `upfcfg.yaml` data in the ConfigMap. Re-rendering after changing the
+setters again is supported.
 
 ## Deploying the Package
 
