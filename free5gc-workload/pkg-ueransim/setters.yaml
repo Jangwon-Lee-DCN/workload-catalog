@@ -39,6 +39,11 @@ data:
     cfg = ctx.resource_list["functionConfig"]["data"]
     supported = ["gnb-n2-ip", "gnb-n3-ip", "amf-n2-ip", "upf-n3-ip"]
     replace_embedded_config(ctx.resource_list["items"], cfg, supported)
+
+    node_name = "ip-" + cfg["edge-worker-node-ip"].replace(".", "-") + "." + cfg["aws-region"] + ".compute.internal"
+    for resource in ctx.resource_list["items"]:
+      if resource.get("kind") == "Deployment" and resource.get("metadata", {}).get("name") in ["gnb", "ue"]:
+        resource["spec"]["template"]["spec"]["nodeName"] = node_name
   namespace: free5gc
   # gNB N2: edge-n2 subnet (192.168.10.0/24) on ens6
   gnb-n2-ip: 192.168.10.204
@@ -65,7 +70,7 @@ data:
   ue-opc: 8e27b6af0e692e750f32667a3b14605d
   ue-apn: internet
   gnb-id: "0x000001"
-  # AWS node name is composed as <node-ip>.<region>.compute.internal.
+  # AWS node name is composed as ip-<hyphenated-private-ip>.<region>.compute.internal.
   aws-region: ap-southeast-1
-  edge-worker-node-ip: ip-192-168-1-11
+  edge-worker-node-ip: 192.168.1.11
   image-ueransim: free5gc/ueransim:v3.4.3

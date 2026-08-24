@@ -39,6 +39,11 @@ data:
     cfg = ctx.resource_list["functionConfig"]["data"]
     supported = ["upf-n3-ip", "upf-n4-ip", "upf-n6-ip", "ue-subnet"]
     replace_embedded_config(ctx.resource_list["items"], cfg, supported)
+
+    node_name = "ip-" + cfg["edge-worker-node-ip"].replace(".", "-") + "." + cfg["aws-region"] + ".compute.internal"
+    for resource in ctx.resource_list["items"]:
+      if resource.get("kind") == "Deployment" and resource.get("metadata", {}).get("name") == "upf":
+        resource["spec"]["template"]["spec"]["nodeName"] = node_name
   namespace: free5gc
   # UPF N3: edge-n3 subnet (192.168.12.0/24) on ens8
   upf-n3-ip: 192.168.12.201
@@ -57,7 +62,7 @@ data:
   upf-n6-nad-master: ens9
   ue-subnet: 10.1.0.0/16
   dnn: internet
-  # AWS node name is composed as <node-ip>.<region>.compute.internal.
+  # AWS node name is composed as ip-<hyphenated-private-ip>.<region>.compute.internal.
   aws-region: ap-southeast-1
-  edge-worker-node-ip: ip-192-168-1-11
+  edge-worker-node-ip: 192.168.1.11
   image-upf: free5gc/upf:v3.4.3

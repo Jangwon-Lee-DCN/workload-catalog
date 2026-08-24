@@ -59,7 +59,7 @@ data:
   upf-n6-nad-master: ens9
 
   aws-region: ap-southeast-1
-  edge-worker-node-ip: ip-192-168-1-11
+  edge-worker-node-ip: 192.168.1.11
 
   ue-subnet: 10.1.0.0/16        # UE IP pool allocated by SMF
   dnn: internet                  # Data Network Name
@@ -71,7 +71,7 @@ embedded `upfcfg.yaml` data in the ConfigMap. Re-rendering after changing the
 setters again is supported.
 
 The UPF `nodeName` is rendered as
-`<edge-worker-node-ip>.<aws-region>.compute.internal`.
+`ip-<hyphenated-edge-worker-node-ip>.<aws-region>.compute.internal`.
 
 ## Deploying the Package
 

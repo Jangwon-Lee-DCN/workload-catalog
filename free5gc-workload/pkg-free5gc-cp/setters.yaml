@@ -39,6 +39,11 @@ data:
     cfg = ctx.resource_list["functionConfig"]["data"]
     supported = ["amf-n2-ip", "smf-n4-ip", "upf-n4-ip", "upf-n3-ip", "ue-subnet", "ue-dns"]
     replace_embedded_config(ctx.resource_list["items"], cfg, supported)
+
+    node_name = "ip-" + cfg["core-worker-node-ip"].replace(".", "-") + "." + cfg["aws-region"] + ".compute.internal"
+    for resource in ctx.resource_list["items"]:
+      if resource.get("kind") == "Deployment" and resource.get("metadata", {}).get("name") in ["amf", "smf"]:
+        resource["spec"]["template"]["spec"]["nodeName"] = node_name
   # Namespace
   namespace: free5gc
   # AMF N2 Interface (NGAP over Multus ipvlan on ens6 — core-n2 subnet)
@@ -55,9 +60,9 @@ data:
   smf-n4-subnet: "24"
   smf-n4-gateway: 192.168.11.1
   smf-n4-nad-master: ens7
-  # AWS node names are composed as <node-ip>.<region>.compute.internal.
+  # AWS node names are composed as ip-<hyphenated-private-ip>.<region>.compute.internal.
   aws-region: ap-southeast-1
-  core-worker-node-ip: ip-192-168-1-10
+  core-worker-node-ip: 192.168.1.10
   # Core services
   nrf-service-name: nrf-service
   nrf-uri: https://nrf-service:8000
