@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: subscriber-bootstrap
+  namespace: free5gc # kpt-set: ${namespace}
+data:
+  SUPI: imsi-001010000000001 # kpt-set: ${subscriber-supi}
+  PLMN_ID: "00101" # kpt-set: ${subscriber-plmn-id}
+  MCC: "001" # kpt-set: ${subscriber-mcc}
+  MNC: "01" # kpt-set: ${subscriber-mnc}
+  AUTH_METHOD: 5G_AKA # kpt-set: ${subscriber-auth-method}
+  PERMANENT_KEY: 8baf473f2f8fd09487cccbd7097c6862 # kpt-set: ${subscriber-permanent-key}
+  OPC: 8e27b6af0e692e750f32667a3b14605d # kpt-set: ${subscriber-opc}
+  AMF: "8000" # kpt-set: ${subscriber-amf}
+  SQN: "000000000000" # kpt-set: ${subscriber-sqn}
+  bootstrap.js: |
+    var ueId = _getEnv("SUPI");
+    var servingPlmnId = _getEnv("PLMN_ID");
+    if (servingPlmnId != _getEnv("MCC") + _getEnv("MNC")) {
+      throw new Error("PLMN_ID must equal MCC + MNC");
+    }
+    var tenant = db.tenantData.findOne({tenantName: "admin"});
+
+    if (!tenant) {
+      throw new Error("the WebUI admin tenant is not ready");
+    }
+
+    function insertDefault(collection, key, value) {
+      db.getCollection(collection).updateOne(key, {$setOnInsert: value}, {upsert: true});
+    }
+
+    insertDefault("subscriptionData.authenticationData.authenticationSubscription",
+      {ueId: ueId}, {
+        ueId: ueId,
+        tenantId: tenant.tenantId,
+        authenticationMethod: _getEnv("AUTH_METHOD"),
+        permanentKey: {
+          encryptionAlgorithm: 0,
+          encryptionKey: 0,
+          permanentKeyValue: _getEnv("PERMANENT_KEY")
+        },
+        sequenceNumber: _getEnv("SQN"),
+        authenticationManagementField: _getEnv("AMF"),
+        milenage: {op: {encryptionAlgorithm: 0, encryptionKey: 0, opValue: ""}},
+        opc: {encryptionAlgorithm: 0, encryptionKey: 0, opcValue: _getEnv("OPC")}
+      });
+
+    insertDefault("subscriptionData.identityData", {ueId: ueId}, {
+      ueId: ueId, gpsi: "msisdn-"
+    });
+
+    insertDefault("subscriptionData.provisionedData.amData",
+      {ueId: ueId, servingPlmnId: servingPlmnId}, {
+        ueId: ueId,
+        servingPlmnId: servingPlmnId,
+        tenantId: tenant.tenantId,
+        gpsis: ["msisdn-"],
+        subscribedUeAmbr: {uplink: "1 Gbps", downlink: "2 Gbps"},
+        nssai: {
+          defaultSingleNssais: [{sst: 1, sd: "010203"}],
+          singleNssais: [{sst: 1, sd: "112233"}]
+        }
+      });
+
+    var sessions = [
+      {sst: 1, sd: "010203", fiveQi: 9},
+      {sst: 1, sd: "112233", fiveQi: 8}
+    ];
+    sessions.forEach(function(session) {
+      var value = {
+        ueId: ueId,
+        servingPlmnId: servingPlmnId,
+        singleNssai: {sst: session.sst, sd: session.sd},
+        dnnConfigurations: {
+          internet: {
+            pduSessionTypes: {defaultSessionType: "IPV4", allowedSessionTypes: ["IPV4"]},
+            sscModes: {defaultSscMode: "SSC_MODE_1", allowedSscModes: ["SSC_MODE_2", "SSC_MODE_3"]},
+            "5gQosProfile": {
+              "5qi": session.fiveQi,
+              arp: {priorityLevel: 8, preemptCap: "", preemptVuln: ""},
+              priorityLevel: 8
+            },
+            sessionAmbr: {uplink: "1000 Mbps", downlink: "1000 Mbps"}
+          }
+        }
+      };
+      insertDefault("subscriptionData.provisionedData.smData",
+        {ueId: ueId, servingPlmnId: servingPlmnId, "singleNssai.sst": session.sst, "singleNssai.sd": session.sd}, value);
+    });
+
+    insertDefault("subscriptionData.provisionedData.smfSelectionSubscriptionData",
+      {ueId: ueId, servingPlmnId: servingPlmnId}, {
+        ueId: ueId,
+        servingPlmnId: servingPlmnId,
+        subscribedSnssaiInfos: {
+          "01010203": {dnnInfos: [{dnn: "internet"}]},
+          "01112233": {dnnInfos: [{dnn: "internet"}]}
+        }
+      });
+
+    insertDefault("policyData.ues.amData", {ueId: ueId}, {
+      ueId: ueId, subscCats: ["free5gc"]
+    });
+    insertDefault("policyData.ues.smData", {ueId: ueId}, {
+      ueId: ueId,
+      smPolicySnssaiData: {
+        "01010203": {
+          snssai: {sst: 1, sd: "010203"},
+          smPolicyDnnData: {internet: {dnn: "internet"}}
+        },
+        "01112233": {
+          snssai: {sst: 1, sd: "112233"},
+          smPolicyDnnData: {internet: {dnn: "internet"}}
+        }
+      }
+    });
+
+    [
+      {snssai: "01010203", precedence: 128, qosRef: 1},
+      {snssai: "01112233", precedence: 127, qosRef: 2}
+    ].forEach(function(rule) {
+      insertDefault("policyData.ues.flowRule",
+        {ueId: ueId, servingPlmnId: servingPlmnId, snssai: rule.snssai, dnn: "internet"}, {
+          ueId: ueId, servingPlmnId: servingPlmnId, snssai: rule.snssai,
+          dnn: "internet", filter: "1.1.1.1/32", precedence: rule.precedence, qosRef: rule.qosRef
+        });
+    });
+
+    [
+      {snssai: "01010203", qosRef: 1, fiveQi: 8, mbr: "208 Mbps", gbr: "108 Mbps"},
+      {snssai: "01112233", qosRef: 2, fiveQi: 7, mbr: "407 Mbps", gbr: "207 Mbps"}
+    ].forEach(function(qos) {
+      insertDefault("policyData.ues.qosFlow",
+        {ueId: ueId, servingPlmnId: servingPlmnId, snssai: qos.snssai, dnn: "internet", qosRef: qos.qosRef}, {
+          ueId: ueId, servingPlmnId: servingPlmnId, snssai: qos.snssai, dnn: "internet",
+          qosRef: qos.qosRef, "5qi": qos.fiveQi,
+          mbrUL: qos.mbr, mbrDL: qos.mbr, gbrUL: qos.gbr, gbrDL: qos.gbr
+        });
+    });
+
+    [
+      {snssai: "01010203", dnn: "", filter: "", method: "Offline", quota: "100000"},
+      {snssai: "01010203", dnn: "internet", filter: "1.1.1.1/32", method: "Offline", quota: "100000", qosRef: 1},
+      {snssai: "01112233", dnn: "", filter: "", method: "Online", quota: "100000"},
+      {snssai: "01112233", dnn: "internet", filter: "1.1.1.1/32", method: "Online", quota: "5000", qosRef: 2}
+    ].forEach(function(charging) {
+      var key = {
+        ueId: ueId, servingPlmnId: servingPlmnId, snssai: charging.snssai,
+        dnn: charging.dnn, filter: charging.filter, chargingMethod: charging.method
+      };
+      var value = Object.assign({}, key, {quota: charging.quota, unitCost: "1"});
+      if (charging.qosRef) value.qosRef = charging.qosRef;
+      insertDefault("policyData.ues.chargingData", key, value);
+    });
+
+    print("subscriber " + ueId + " is present");
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: subscriber-bootstrap
+  namespace: free5gc # kpt-set: ${namespace}
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: subscriber-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: subscriber-bootstrap
+          image: mongo:4.4 # kpt-set: ${image-mongodb}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_URI
+              value: mongodb://mongodb:27017 # kpt-set: ${mongodb-uri}
+            - name: SUPI
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: SUPI}}
+            - name: PLMN_ID
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: PLMN_ID}}
+            - name: MCC
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: MCC}}
+            - name: MNC
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: MNC}}
+            - name: AUTH_METHOD
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: AUTH_METHOD}}
+            - name: PERMANENT_KEY
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: PERMANENT_KEY}}
+            - name: OPC
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: OPC}}
+            - name: AMF
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: AMF}}
+            - name: SQN
+              valueFrom: {configMapKeyRef: {name: subscriber-bootstrap, key: SQN}}
+          command:
+            - sh
+            - -ec
+            - |
+              until mongo "$DB_URI/free5gc" --quiet --eval 'quit(db.tenantData.findOne({tenantName: "admin"}) ? 0 : 1)'; do
+                echo "waiting for MongoDB and the WebUI admin tenant"
+                sleep 2
+              done
+              mongo "$DB_URI/free5gc" --quiet /bootstrap/bootstrap.js
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap/bootstrap.js
+              subPath: bootstrap.js
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: subscriber-bootstrap

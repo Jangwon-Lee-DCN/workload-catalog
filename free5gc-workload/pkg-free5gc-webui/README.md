@@ -28,7 +28,31 @@ Replace `NODE_IP` with the IP address of any node in your regional cluster.
 
 > **Security note**: Change the default password immediately after first login in production environments.
 
-## How to Add a Subscriber
+## Automatic Subscriber Registration
+
+The package creates the following subscriber automatically. Slice, DNN, QoS, and charging
+settings use the defaults presented by free5GC WebUI v3.4.3. The bootstrap Job waits for
+MongoDB and the WebUI `admin` tenant, then inserts any missing subscriber documents.
+Existing documents are never overwritten, so a live authentication SQN is not reset by a
+package re-apply.
+
+| Field | Default |
+|-------|---------|
+| SUPI / IMSI | `imsi-001010000000001` |
+| PLMN ID | `00101` |
+| MCC | `001` |
+| MNC | `01` |
+| Authentication method | `5G_AKA` |
+| Permanent key (K) | `8baf473f2f8fd09487cccbd7097c6862` |
+| Operator code type | `OPC` |
+| Operator code value (OPc) | `8e27b6af0e692e750f32667a3b14605d` |
+| AMF | `8000` |
+| SQN | `000000000000` |
+
+`subscriber-plmn-id` must be the concatenation of `subscriber-mcc` and `subscriber-mnc`.
+The bootstrap Job fails without modifying subscriber data when these values disagree.
+
+## How to Add Another Subscriber
 
 Subscribers must be added to the WebUI **before** a UE (User Equipment) attempts to connect. Attempting to connect without a registered subscriber will result in authentication failure.
 
@@ -65,9 +89,19 @@ Customize the package by editing `setters.yaml` before running `kpt fn render`:
 |--------|---------|-------------|
 | `namespace` | `free5gc` | Kubernetes namespace |
 | `mongodb-uri` | `mongodb://mongodb:27017` | MongoDB connection URI |
-| `image-tag` | `v3.4.3` | WebUI container image tag |
+| `image-webui` | `free5gc/webui:v3.4.3` | WebUI container image |
+| `image-mongodb` | `mongo:4.4` | Subscriber bootstrap container image |
 | `service-type` | `NodePort` | Kubernetes Service type |
 | `node-port` | `30500` | NodePort number for external access |
+| `subscriber-supi` | `imsi-001010000000001` | SUPI including the `imsi-` prefix |
+| `subscriber-plmn-id` | `00101` | Serving PLMN ID |
+| `subscriber-mcc` | `001` | MCC; must match the PLMN ID |
+| `subscriber-mnc` | `01` | MNC; must match the PLMN ID |
+| `subscriber-auth-method` | `5G_AKA` | Authentication method |
+| `subscriber-permanent-key` | `8baf...6862` | Permanent authentication key (K) |
+| `subscriber-opc` | `8e27...605d` | OPc value; operator code type is OPC |
+| `subscriber-amf` | `8000` | Authentication Management Field |
+| `subscriber-sqn` | `000000000000` | SQN used only when the subscriber does not exist |
 
 ## Deployment
 

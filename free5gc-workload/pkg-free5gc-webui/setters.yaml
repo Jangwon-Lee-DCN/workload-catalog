@@ -8,5 +8,15 @@ data:
   namespace: free5gc
   mongodb-uri: mongodb://mongodb:27017
   image-webui: free5gc/webui:v3.4.3
+  image-mongodb: mongo:4.4
   service-type: NodePort
   node-port: "30500"
+  subscriber-supi: imsi-001010000000001
+  subscriber-plmn-id: "00101"
+  subscriber-mcc: "001"
+  subscriber-mnc: "01"
+  subscriber-auth-method: 5G_AKA
+  subscriber-permanent-key: 8baf473f2f8fd09487cccbd7097c6862
+  subscriber-opc: 8e27b6af0e692e750f32667a3b14605d
+  subscriber-amf: "8000"
+  subscriber-sqn: "000000000000"
