@@ -84,6 +84,8 @@ Edit `setters.yaml` and run `kpt fn render` to apply changes:
 | `gnb-n3-nad-master` | `ens8` | Host NIC for the gNB N3 ipvlan |
 | `amf-n2-ip` | `192.168.10.200` | AMF N2 IP (regional cluster) |
 | `upf-n3-ip` | `192.168.12.201` | UPF N3 IP (edge cluster) |
+| `aws-region` | `ap-southeast-1` | AWS region segment used in worker node names |
+| `edge-worker-node-ip` | `ip-192-168-1-11` | EC2 private-DNS node prefix for gNB and UE scheduling |
 | `plmn-mcc` | `001` | PLMN Mobile Country Code |
 | `plmn-mnc` | `01` | PLMN Mobile Network Code |
 | `tac` | `1` | Tracking Area Code |

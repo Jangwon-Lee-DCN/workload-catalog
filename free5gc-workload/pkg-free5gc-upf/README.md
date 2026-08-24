@@ -58,6 +58,9 @@ data:
   upf-n6-gateway: 192.168.13.1
   upf-n6-nad-master: ens9
 
+  aws-region: ap-southeast-1
+  edge-worker-node-ip: ip-192-168-1-11
+
   ue-subnet: 10.1.0.0/16        # UE IP pool allocated by SMF
   dnn: internet                  # Data Network Name
   image-tag: v3.4.3             # UPF container image tag
@@ -66,6 +69,9 @@ data:
 `kpt fn render` propagates these values both to the NAD JSON strings and to the
 embedded `upfcfg.yaml` data in the ConfigMap. Re-rendering after changing the
 setters again is supported.
+
+The UPF `nodeName` is rendered as
+`<edge-worker-node-ip>.<aws-region>.compute.internal`.
 
 ## Deploying the Package
 

@@ -50,7 +50,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: free5gc-upf-n3, free5gc-upf-n4, free5gc-upf-n6
     spec:
-      nodeName: ip-192-168-1-57.ap-northeast-2.compute.internal # kpt-set: ${edge-worker-node}
+      nodeName: ip-192-168-1-11.ap-southeast-1.compute.internal # kpt-set: ${edge-worker-node-ip}.${aws-region}.compute.internal
       initContainers:
         - name: check-gtp5g
           image: busybox:1.36

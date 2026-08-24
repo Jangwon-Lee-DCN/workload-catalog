@@ -41,7 +41,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: free5gc-gnb-n2, free5gc-gnb-n3
     spec:
-      nodeName: ip-192-168-1-57.ap-northeast-2.compute.internal # kpt-set: ${edge-worker-node}
+      nodeName: ip-192-168-1-11.ap-southeast-1.compute.internal # kpt-set: ${edge-worker-node-ip}.${aws-region}.compute.internal
       containers:
         - name: gnb
           image: free5gc/ueransim:v3.4.3 # kpt-set: ${image-ueransim}

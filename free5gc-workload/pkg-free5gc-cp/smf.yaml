@@ -145,7 +145,7 @@ spec:
       annotations:
         k8s.v1.cni.cncf.io/networks: free5gc-smf-n4
     spec:
-      nodeName: ip-192-168-1-176.ap-northeast-2.compute.internal # kpt-set: ${core-worker-node}
+      nodeName: ip-192-168-1-10.ap-southeast-1.compute.internal # kpt-set: ${core-worker-node-ip}.${aws-region}.compute.internal
       initContainers:
       - name: wait-nrf
         image: busybox:1.36

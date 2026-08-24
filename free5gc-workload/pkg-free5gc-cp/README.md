@@ -78,6 +78,8 @@ Edit `setters.yaml` to match your environment before rendering. The key paramete
 | `image-tag` | `v3.4.3` | Docker image tag for all free5GC NFs |
 | `storage-class` | `standard` | StorageClass name for MongoDB PVC |
 | `mongodb-uri` | `mongodb://mongodb:27017` | MongoDB connection URI used by NRF/UDR |
+| `aws-region` | `ap-southeast-1` | AWS region segment used in worker node names |
+| `core-worker-node-ip` | `ip-192-168-1-10` | EC2 private-DNS node prefix for AMF and SMF scheduling |
 
 The render pipeline applies ordinary YAML setters first, then runs the package's
 Starlark mutator so the same values are also updated inside embedded free5GC
