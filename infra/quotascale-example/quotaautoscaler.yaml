@@ -3,8 +3,6 @@ kind: QuotaAutoscaler
 metadata:
   name: quota-autoscaler
   namespace: default # kpt-set: ${namespace}
-  annotations:
-    argocd.argoproj.io/hook: Skip
 spec:
   behavior:
     scaleDown:
