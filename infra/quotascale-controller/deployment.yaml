@@ -15,13 +15,13 @@ spec:
       labels:
         app.kubernetes.io/name: quotascale-controller
       annotations:
-        quotascale.dcn.ssu.ac.kr/image-revision: "2268934" # kpt-set: ${image-revision}
+        quotascale.dcn.ssu.ac.kr/image-revision: "d21a0c2" # kpt-set: ${image-revision}
     spec:
       serviceAccountName: quotascale-controller-sa
       terminationGracePeriodSeconds: 6
       containers:
         - name: quotascale-controller
-          image: jangwonlee/quotascale-controller:latest # kpt-set: ${image-quotascale-controller}
+          image: jangwonlee/quotascale-controller:v0.1.1 # kpt-set: ${image-quotascale-controller}
           imagePullPolicy: Always # kpt-set: ${image-pull-policy}
           args:
             - --enable-node-scaling=true # kpt-set: ${enable-node-scaling-arg}

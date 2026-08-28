@@ -17,7 +17,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: [""]
     resources: ["resourcequotas"]
-    verbs: ["watch", "list", "get", "patch"]
+    verbs: ["watch", "list", "get", "create", "patch"]
   - apiGroups: [""]
     resources: ["nodes", "pods"]
     verbs: ["list", "get", "update", "patch"]

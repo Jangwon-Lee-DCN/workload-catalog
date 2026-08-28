@@ -16,14 +16,14 @@ and its `QuotaAutoscaler` and `NodeScalingInventory` CRDs.
 - Prepared/activated spare nodes: `2` / `1`
 - Forced node scale-in: disabled
 
-The controller manages CPU and memory values on existing `ResourceQuota`
-objects. Create `QuotaAutoscaler` resources separately in each workload
-namespace that should be managed.
+When `spec.resourceQuota` is omitted, the controller creates a managed
+`resource-quota` in the `QuotaAutoscaler` namespace using `min.cpu` and
+`min.memory`. Set `spec.resourceQuota` explicitly to manage an existing quota.
 
 ## Container image
 
 The package uses the public Linux AMD64 image
-`jangwonlee/quotascale-controller:latest` from Docker Hub. Override the
+`jangwonlee/quotascale-controller:v0.1.1` from Docker Hub. Override the
 `image-quotascale-controller` setter when a different registry or immutable
 version tag is required.
 
@@ -32,9 +32,9 @@ version tag is required.
 | Setter | Default | Description |
 | --- | --- | --- |
 | `namespace` | `quotascale-controller` | Controller namespace |
-| `image-quotascale-controller` | `jangwonlee/quotascale-controller:latest` | Controller image |
-| `image-pull-policy` | `Always` | Always pull the mutable `latest` image |
-| `image-revision` | `2268934` | Rollout marker for the controller image revision |
+| `image-quotascale-controller` | `jangwonlee/quotascale-controller:v0.1.1` | Controller image |
+| `image-pull-policy` | `Always` | Always resolve the configured image tag when a Pod starts |
+| `image-revision` | `d21a0c2` | Rollout marker for the controller image revision |
 | `quota-check-interval-arg` | `--quota-check-interval=10s` | Periodic utilization check |
 | `quota-update-interval-arg` | `--quota-update-interval=10s` | Per-namespace resize rate limit |
 | `enable-node-scaling-arg` | `--enable-node-scaling=true` | Enable the node-scaling controller |
