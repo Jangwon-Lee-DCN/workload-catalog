@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: voice-private-inputs
+  namespace: gpu-cr-system
+spec:
+  selector:
+    matchLabels:
+      app: voice-private-inputs
+  template:
+    metadata:
+      labels:
+        app: voice-private-inputs
+    spec:
+      serviceAccountName: gpu-install
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      hostPID: true
+      containers:
+      - name: inject
+        image: docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /bootstrap/bootstrap.py
+        - inject
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: '4'
+            memory: 2Gi
+        volumeMounts:
+        - name: code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: host
+          mountPath: /host
+        - name: input
+          mountPath: /input
+          readOnly: true
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /host/run/voice-private-ready
+          periodSeconds: 5
+      volumes:
+      - name: code
+        configMap:
+          name: gpu-install-code
+      - name: host
+        hostPath:
+          path: /
+          type: Directory
+      - name: input
+        hostPath:
+          path: /var/lib/voice-private/aisrc
+          type: DirectoryOrCreate

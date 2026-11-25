@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gnb
+    app.kubernetes.io/instance: edge
+  name: gnb-service
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+    - name: gnb-sctp
+      port: 38412
+      protocol: SCTP
+      targetPort: 38412
+  selector:
+    app: gnb
+  sessionAffinity: None
+  type: ClusterIP

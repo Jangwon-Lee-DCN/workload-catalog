@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ims-public-gateway
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ims-public-gateway
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+rules:
+- apiGroups: ['']
+  resources: [services, endpoints, secrets, pods]
+  verbs: [get, list, watch]
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses/status]
+  verbs: [update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ims-public-gateway
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ims-public-gateway
+subjects:
+- kind: ServiceAccount
+  name: ims-public-gateway
+  namespace: ims-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ims-public-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+rules:
+- apiGroups: ['']
+  resources: [nodes]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [ingressclasses]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ims-public-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ims-public-gateway
+subjects:
+- kind: ServiceAccount
+  name: ims-public-gateway
+  namespace: ims-lab
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: ims-public
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+spec:
+  controller: traefik.io/ingress-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ims-public-gateway
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ims-public-gateway
+  template:
+    metadata:
+      labels:
+        app: ims-public-gateway
+    spec:
+      serviceAccountName: ims-public-gateway
+      nodeSelector:
+        kubernetes.io/hostname: '@{edge-node-name}'
+      containers:
+      - name: traefik
+        image: docker.io/library/traefik@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4
+        args:
+        - --api.dashboard=false
+        - --providers.kubernetesingress=true
+        - --providers.kubernetesingress.ingressclass=ims-public
+        - --providers.kubernetesingress.namespaces=ims-lab
+        - --providers.kubernetesingress.ingressendpoint.publishedservice=ims-lab/@{public-service-name}
+        - --entrypoints.web.address=:8000
+        - --entrypoints.web.asdefault=true
+        - --entrypoints.websecure.address=:8443
+        - --entrypoints.websecure.asdefault=true
+        - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=0s
+        - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=0s
+        - --entrypoints.websecure.transport.respondingtimeouts.idletimeout=3600s
+        - --entrypoints.health.address=:8082
+        - --ping=true
+        - --ping.entrypoint=health
+        ports:
+        - name: web
+          containerPort: 8000
+        - name: websecure
+          containerPort: 8443
+        - name: health
+          containerPort: 8082
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: health
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: health
+          initialDelaySeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: '1'
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: '@{public-service-name}'
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-subnets: '@{public-subnet-id}'
+    service.beta.kubernetes.io/aws-load-balancer-eip-allocations: '@{public-eip-allocation-id}'
+    service.beta.kubernetes.io/aws-load-balancer-target-node-labels: 'kubernetes.io/hostname=@{edge-node-name}'
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: ims-public-gateway
+  ports:
+  - name: http
+    port: 80
+    targetPort: web
+  - name: https
+    port: 443
+    targetPort: websecure
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ims-public-acme
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: ims-public-acme-account
+    solvers:
+    - http01:
+        ingress:
+          ingressClassName: ims-public
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ims-public-tls
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '5'
+    config.kubernetes.io/depends-on: apps/namespaces/ims-lab/Deployment/ims-public-gateway
+spec:
+  secretName: ims-public-tls
+  dnsNames:
+  - '@{phone-hostname}'
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  issuerRef:
+    name: ims-public-acme
+    kind: Issuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ims-public-phone
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+spec:
+  ingressClassName: ims-public
+  tls:
+  - hosts:
+    - '@{phone-hostname}'
+    secretName: ims-public-tls
+  rules:
+  - host: '@{phone-hostname}'
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ims-phone-gateway
+            port:
+              name: http

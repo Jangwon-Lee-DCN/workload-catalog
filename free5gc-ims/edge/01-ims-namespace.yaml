@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ims-lab
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    app.kubernetes.io/part-of: free5gc-ims
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'

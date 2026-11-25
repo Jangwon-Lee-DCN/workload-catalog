@@ -1,0 +1,29 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSCluster
+metadata:
+  name: '@{core-cluster-name}'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{core-cluster-name}'
+spec:
+  controlPlaneLoadBalancer:
+    healthCheckProtocol: HTTPS
+    loadBalancerType: nlb
+  region: '@{aws-region}'
+  sshKeyName: '@{ssh-key-name}'
+  network:
+    vpc:
+      id: '@{vpc-id}'
+    subnets:
+      - id: '@{public-subnet-id}'
+        availabilityZone: '@{aws-az}'
+        isPublic: true
+      - id: '@{private-subnet-id}'
+        availabilityZone: '@{aws-az}'
+        isPublic: false
+    securityGroupOverrides:
+      controlplane: '@{security-group-id}'
+      node: '@{security-group-id}'
+      apiserver-lb: '@{security-group-id}'
+      lb: '@{security-group-id}'
+      bastion: '@{security-group-id}'

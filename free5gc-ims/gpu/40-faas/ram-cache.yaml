@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: voice-ram-cache
+  namespace: gpu-cr-system
+spec:
+  selector:
+    matchLabels:
+      app: voice-ram-cache
+  template:
+    metadata:
+      labels:
+        app: voice-ram-cache
+    spec:
+      hostPID: true
+      automountServiceAccountToken: false
+      containers:
+      - name: prepare
+        image: docker.io/library/ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+        command:
+        - bash
+        - -ec
+        - |
+          set -eu
+          mkdir -p /host/etc/voice-cache
+          if test -f /host/run/voice-cache-ready; then
+            # A restarted cache Pod must not re-prepare files used by running models.
+            cmp -s /records/checkpoints.json /host/etc/voice-cache/checkpoints.json || {
+              echo 'Cache profile changed: stop restored workloads and clear the ready marker before preparing again' >&2
+              exit 1
+            }
+            printf 'CACHE_READY_REUSED\n'
+            while sleep 5; do test -f /host/run/voice-cache-ready || exit 1; done
+          fi
+          cp /records/checkpoints.json /host/etc/voice-cache/checkpoints.json
+          chmod 600 /host/etc/voice-cache/checkpoints.json
+          nsenter -t 1 -m -p -r -w -- /usr/bin/python3 - <<'CHECK'
+          import json,pathlib,os
+          records=json.loads(pathlib.Path('/etc/voice-cache/checkpoints.json').read_text())
+          assert sorted(r['model'] for r in records)==['aisrc','base']
+          need=sum(pathlib.Path(r[k]).stat().st_size for r in records for k in ('archive','blob'))
+          mem={x.split(':')[0]:int(x.split()[1])*1024 for x in pathlib.Path('/proc/meminfo').read_text().splitlines()}
+          # Leave headroom for two detector restores, generation and CPU speech recognition.
+          if not pathlib.Path('/run/voice-cache-ready').exists():
+           assert mem['MemAvailable']>=need*2+32*1024**3,'Insufficient RAM for both cache and restore working sets'
+          CHECK
+          install -m 0700 /cache-code/cache_prepare.py /host/run/ims-cache-prepare.py
+          nsenter -t 1 -m -p -r -w -- /usr/bin/python3 /run/ims-cache-prepare.py
+          test -f /host/run/voice-cache-ready
+          printf 'CACHE_READY\n'
+          while sleep 5; do test -f /host/run/voice-cache-ready || exit 1; done
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: '1'
+            memory: 24Gi
+          limits:
+            cpu: '8'
+            memory: 80Gi
+        volumeMounts:
+        - name: host
+          mountPath: /host
+          mountPropagation: Bidirectional
+        - name: cache-code
+          mountPath: /cache-code
+          readOnly: true
+        - name: records
+          mountPath: /records
+          readOnly: true
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /host/run/voice-cache-ready
+          periodSeconds: 2
+        startupProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /host/run/voice-cache-ready
+          periodSeconds: 5
+          failureThreshold: 360
+      volumes:
+      - name: host
+        hostPath:
+          path: /
+          type: Directory
+      - name: cache-code
+        configMap:
+          name: voice-cache-code
+      - name: records
+        configMap:
+          name: voice-cache-records
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

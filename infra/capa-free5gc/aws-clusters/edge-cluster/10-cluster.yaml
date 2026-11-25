@@ -1,0 +1,24 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  labels:
+    ccm: external
+    csi: external
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+  name: '@{edge-cluster-name}'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.244.0.0/16
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: '@{edge-cluster-name}-control-plane'
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+    kind: AWSCluster
+    name: '@{edge-cluster-name}'

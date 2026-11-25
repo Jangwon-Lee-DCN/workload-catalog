@@ -1,0 +1,300 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-fast-model
+  namespace: qwen-tts-lab
+data:
+  fast_clone_server.py: |
+    """Reference-conditioned Qwen server for private IMS latency trials."""
+    import base64,io,json,os,pathlib,sys,time,traceback
+    sys.path.insert(0,'/fast-model')
+    from http.server import BaseHTTPRequestHandler,HTTPServer
+    import numpy as np,soundfile as sf,torch
+    from qwen_tts import Qwen3TTSModel
+    from qwen_codec_graph import enable as enable_codec_graph
+    torch.set_num_threads(int(os.environ.get('VOICE_CPU_THREADS','1')))
+    size=os.environ.get('VOICE_SIZE','1.7B')
+    assert size in ('1.7B','0.6B')
+    revision={'1.7B':'fd4b254389122332181a7c3db7f27e918eec64e3','0.6B':'5d83992436eae1d760afd27aff78a71d676296fc'}[size]
+    model=Qwen3TTSModel.from_pretrained('/data/huggingface/hub/models--Qwen--Qwen3-TTS-12Hz-'+size+'-Base/snapshots/'+revision,device_map='cuda:0',dtype=torch.bfloat16,attn_implementation='sdpa')
+    optimizer=None
+    def prepare_optimizer():
+     global optimizer
+     if optimizer is None and os.environ.get('VOICE_CODEC_GRAPH','0')=='1':
+      optimizer=enable_codec_graph(model)
+    @torch.inference_mode()
+    def infer(body):
+     text=body['text'];assert isinstance(text,str) and 1<=len(text)<=300
+     raw=base64.b64decode(body['reference'],validate=True);assert len(raw)<=18_000_000
+     audio,rate=sf.read(io.BytesIO(raw));assert audio.ndim==1 and 8<=len(audio)/rate<=180 and np.isfinite(audio).all()
+     mode=body.get('reference_mode','xvector');assert mode in ('icl','xvector')
+     if mode=='icl':assert isinstance(body.get('ref_text'),str) and 0<len(body['ref_text'])<=2000
+     language=body.get('language','Korean');assert language in ('Korean','English')
+     threads=body.get('cpu_threads',int(os.environ.get('VOICE_CPU_THREADS','1')));assert threads in (1,2,4,8);torch.set_num_threads(threads)
+     if 'seed' in body:torch.manual_seed(int(body['seed']))
+     torch.cuda.synchronize();start=time.monotonic()
+     prompt=model.create_voice_clone_prompt(ref_audio=(audio,rate),ref_text=body.get('ref_text') if mode=='icl' else None,x_vector_only_mode=mode=='xvector')
+     torch.cuda.synchronize();prepared=time.monotonic()
+     waves,sr=model.generate_voice_clone(text=text,language=language,voice_clone_prompt=prompt,non_streaming_mode=body.get('non_streaming',True),max_new_tokens=512)
+     torch.cuda.synchronize();finished=time.monotonic();audio=np.asarray(waves[0]).squeeze()
+     assert audio.ndim==1 and sr<=48000 and .5<=len(audio)/sr<=30 and np.isfinite(audio).all()
+     result=io.BytesIO();sf.write(result,audio,sr,format='WAV',subtype='PCM_16')
+     return result.getvalue(),{'prompt_seconds':prepared-start,'generate_seconds':finished-prepared,'model_seconds':finished-start,'audio_seconds':len(audio)/sr,'reference_seconds':len(raw)/(rate*2),'size':size,'reference_mode':mode}
+    class Handler(BaseHTTPRequestHandler):
+     def log_message(self,*args):pass
+     def do_GET(self):
+      if self.path not in ('/health','/healthz','/prepare'):return self.send_error(404)
+      if self.path=='/prepare':prepare_optimizer()
+      self.send_response(200);self.end_headers();self.wfile.write(b'ready')
+     def do_POST(self):
+      if self.path!='/infer':return self.send_error(404)
+      try:
+       size=int(self.headers.get('Content-Length','0'));assert 0<size<=25_000_000
+       body=json.loads(self.rfile.read(size));prepare_optimizer();data,timing=infer(body)
+       self.send_response(200);self.send_header('Content-Type','audio/wav');self.send_header('Content-Length',str(len(data)));self.send_header('X-Voice-Contract','dynamic-v1');self.send_header('X-Generation-Timing',json.dumps(timing));self.end_headers();self.wfile.write(data)
+      except (KeyError,AssertionError,ValueError):self.send_error(400,'Invalid voice inputs')
+      except Exception:traceback.print_exc();self.send_error(500,'Voice generation failed')
+    if __name__=='__main__':
+     if os.environ.get('VOICE_SOURCE_WARMUP','0')=='1':
+      # Installation reference only: no new participant audio is stored in the checkpoint.
+      reference=base64.b64encode(pathlib.Path('/data/official-reference.wav').read_bytes()).decode()
+      infer({'text':'Hello. This is a test.','reference':reference,'reference_mode':'xvector','language':'English'})
+     print('MODEL_READY',size,flush=True)
+     HTTPServer(('0.0.0.0',8000),Handler).serve_forever()
+  qwen_codec_graph.py: |
+    """Private runtime optimization of the fixed-length Qwen codec predictor.
+
+    Only the 15-code sub-predictor is captured. Text generation, model weights,
+    reference conditioning and waveform decoder remain unchanged. Unsupported
+    sampling settings use the original implementation. Greedy equivalence is
+    checked against that implementation before enabling the captured path.
+    """
+    from types import SimpleNamespace
+    import torch
+    from transformers import DynamicCache
+
+    class CodecGraph:
+     def __init__(self,predictor,example):
+      self.model=predictor;self.original=predictor.generate;self.graphs={}
+      assert example.ndim==3 and example.shape[0]==1 and example.shape[1]==2
+      self.input=torch.zeros_like(example)
+      for sample in [False,True]:
+       stream=torch.cuda.Stream();stream.wait_stream(torch.cuda.current_stream())
+       with torch.cuda.stream(stream):
+        for _ in range(2):self._run(self.input,sample)
+       torch.cuda.current_stream().wait_stream(stream);torch.cuda.synchronize()
+       graph=torch.cuda.CUDAGraph()
+       with torch.cuda.graph(graph):output=self._run(self.input,sample)
+       self.graphs[sample]=(graph,output)
+      self.verify()
+     @torch.inference_mode()
+     def _run(self,embeds,sample):
+      cache=DynamicCache();ids=[];previous=None
+      for step in range(self.model.config.num_code_groups-1):
+       if step==0:
+        mask=torch.full((1,1,2,2),torch.finfo(embeds.dtype).min,device=embeds.device,dtype=embeds.dtype).triu(1)
+        out=self.model(inputs_embeds=embeds,past_key_values=cache,attention_mask={'full_attention':mask},use_cache=True,output_hidden_states=False,return_dict=True)
+       else:
+        out=self.model(input_ids=previous,past_key_values=cache,generation_steps=step,attention_mask={'full_attention':None},use_cache=True,output_hidden_states=False,return_dict=True)
+       logits=out.logits[:,-1,:].float()
+       if sample:
+        logits=logits/.9
+        values,indices=logits.topk(50,dim=-1)
+        probabilities=torch.softmax(values,dim=-1)
+        selected=(probabilities/torch.empty_like(probabilities).exponential_()).argmax(dim=-1,keepdim=True)
+        previous=indices.gather(-1,selected)
+       else:previous=logits.argmax(dim=-1,keepdim=True)
+       ids.append(previous);cache=out.past_key_values
+      return torch.cat(ids,dim=-1)
+     @torch.inference_mode()
+     def verify(self):
+      for seed in [101,202,303]:
+       torch.manual_seed(seed);example=torch.randn_like(self.input)
+       expected=self.original(inputs_embeds=example,max_new_tokens=self.model.config.num_code_groups-1,do_sample=False,output_hidden_states=True,return_dict_in_generate=True).sequences
+       self.input.copy_(example);g,result=self.graphs[False];g.replay()
+       if not torch.equal(expected,result):raise RuntimeError('Codec graph greedy equivalence check failed')
+     @torch.inference_mode()
+     def __call__(self,**kwargs):
+      embeds=kwargs.get('inputs_embeds');sample=kwargs.get('do_sample',True)
+      supported=isinstance(embeds,torch.Tensor) and embeds.shape==self.input.shape and embeds.dtype==self.input.dtype and kwargs.get('max_new_tokens')==self.model.config.num_code_groups-1 and (not sample or (kwargs.get('top_k')==50 and kwargs.get('top_p')==1.0 and kwargs.get('temperature')==.9))
+      if not supported:return self.original(**kwargs)
+      self.input.copy_(embeds);graph,output=self.graphs[bool(sample)];graph.replay()
+      return SimpleNamespace(sequences=output.clone())
+
+    def enable(model):
+     predictor=model.model.talker.code_predictor
+     example=torch.empty((1,2,model.model.talker.config.hidden_size),device=next(predictor.parameters()).device,dtype=next(predictor.parameters()).dtype)
+     wrapper=CodecGraph(predictor,example);predictor.generate=wrapper
+     return wrapper
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-fast-guard
+  namespace: qwen-tts-lab
+data:
+  guard.py: |
+    """Serialize model calls and emit request-correlated, non-content observations."""
+    import http.client
+    import http.server
+    import json
+    import os
+    import pathlib
+    import signal
+    import threading
+    import time
+
+    ready=pathlib.Path('/restore-run')/os.environ['SOURCE_UID']/'restored-ready'
+    lock=threading.Lock()
+    failed=threading.Event()
+    prepared=threading.Event()
+    preparing=threading.Event()
+    prepare_lock=threading.Lock()
+    signal.signal(signal.SIGTERM,lambda *_:exit(0))
+
+    def prepare_graph():
+        conn=http.client.HTTPConnection('127.0.0.1',int(os.getenv('UPSTREAM_PORT','8000')),timeout=60)
+        try:
+            with lock:
+                conn.request('GET','/prepare');response=conn.getresponse();response.read()
+                if response.status!=200:raise RuntimeError('Optimizer preparation failed')
+                prepared.set()
+        except Exception:failed.set()
+        finally:conn.close()
+
+    def is_ready():
+        if not ready.is_file() or failed.is_set():return False
+        with prepare_lock:
+            if not preparing.is_set():
+                preparing.set();threading.Thread(target=prepare_graph,daemon=True).start()
+        return prepared.is_set()
+
+
+    def observe(rid,phase,**fields):
+        if rid:
+            print('VOICE_OBS '+json.dumps({'id':rid,'phase':phase,'at':time.time(),**fields}),flush=True)
+
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self,*_):pass
+        def do_GET(self):
+            self.send_response(200 if is_ready() else 503)
+            self.end_headers()
+        def do_POST(self):
+            rid=self.headers.get('X-Request-ID','')[:128]
+            if not is_ready():
+                self.send_error(503,'Restore not ready');return
+            length=int(self.headers.get('Content-Length','0'))
+            if not 0<length<=32*1024*1024:self.send_error(413);return
+            body=self.rfile.read(length)
+            observe(rid,'guard_received',bytes=length)
+            with lock:
+                if failed.is_set():self.send_error(503,'Upstream state unknown');return
+                conn=http.client.HTTPConnection('127.0.0.1',int(os.getenv('UPSTREAM_PORT','8000')),timeout=600)
+                completed=False
+                try:
+                    observe(rid,'model_started')
+                    conn.request('POST',self.path,body,{'Content-Type':self.headers['Content-Type'],'Connection':'close','X-Request-ID':rid})
+                    r=conn.getresponse();payload=r.read();completed=True
+                    observe(rid,'model_complete' if r.status<400 else 'model_failed',status=r.status,bytes=len(payload))
+                    self.send_response(r.status)
+                    self.send_header('Content-Type',r.getheader('Content-Type','application/json'))
+                    self.send_header('Content-Length',str(len(payload)))
+                    self.send_header('X-Restore-Pod',os.environ.get('HOSTNAME','unknown'))
+                    self.send_header('X-Voice-Contract',r.getheader('X-Voice-Contract',''))
+                    self.send_header('X-Reference-Mode',r.getheader('X-Reference-Mode',''))
+                    self.send_header('X-Generation-Timing',r.getheader('X-Generation-Timing',''))
+                    self.end_headers();self.wfile.write(payload)
+                except (BrokenPipeError,ConnectionResetError):
+                    if not completed:failed.set();observe(rid,'model_failed')
+                except Exception:
+                    failed.set();observe(rid,'model_failed')
+                    try:self.send_error(502,'Upstream state unknown')
+                    except (BrokenPipeError,ConnectionResetError):pass
+                finally:conn.close()
+
+
+    http.server.ThreadingHTTPServer(('0.0.0.0',8080),Handler).serve_forever()
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voice-model-download
+  namespace: qwen-tts-lab
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 7200
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: download
+        image: docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
+        command:
+        - python
+        - -c
+        args:
+        - |
+          from pathlib import Path
+          import shutil, subprocess, sys
+          subprocess.run([sys.executable,'-m','pip','install','--no-cache-dir','huggingface_hub==0.36.0'],check=True)
+          from huggingface_hub import snapshot_download, hf_hub_download
+          root=Path('/data'); root.mkdir(exist_ok=True)
+          snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base',revision='fd4b254389122332181a7c3db7f27e918eec64e3')
+          ref=hf_hub_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base','README.md',revision='fd4b254389122332181a7c3db7f27e918eec64e3')
+          print('QWEN_MODEL_READY',flush=True)
+        env:
+        - name: HF_HOME
+          value: /data/huggingface
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        hostPath:
+          path: /var/lib/qwen-tts-lab
+          type: DirectoryOrCreate
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voice-env-setup
+  namespace: qwen-tts-lab
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 7200
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+      - name: setup
+        image: docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee
+        command:
+        - bash
+        - -ec
+        args:
+        - |
+          if test -f /data/.voice-env-ready; then exit 0; fi
+          python -m venv --system-site-packages /data/voice-env
+          /data/voice-env/bin/pip install torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+          /data/voice-env/bin/pip install qwen-tts==0.1.1 transformers==4.57.3 tokenizers==0.22.2 accelerate==1.12.0 huggingface_hub==0.36.2 librosa==0.11.0 numba==0.68.0 llvmlite==0.50.0 safetensors==0.8.0 soundfile==0.14.0 einops==0.8.2 sox==1.5.0 scipy==1.17.1
+          /data/voice-env/bin/python -c 'import qwen_tts, torch, torchaudio; print(torch.__version__, torchaudio.__version__)'
+
+          touch /data/.voice-env-ready
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        hostPath:
+          path: /var/lib/qwen-tts-lab
+          type: Directory
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

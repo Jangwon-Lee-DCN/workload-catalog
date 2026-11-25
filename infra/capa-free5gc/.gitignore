@@ -1,0 +1,9 @@
+site.local.yaml
+rendered/
+artifacts/
+__pycache__/
+
+private/
+.venv/
+
+/site.manual.yaml

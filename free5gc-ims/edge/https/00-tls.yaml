@@ -1,0 +1,35 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ims-phone-selfsigned
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-20'
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ims-phone-tls
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  secretName: ims-phone-tls
+  subject:
+    organizations:
+      - IMS Phone Demo
+  dnsNames:
+    - '@{phone-hostname}'
+    - localhost
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  issuerRef:
+    name: '@{tls-issuer-name}'
+    kind: '@{tls-issuer-kind}'
+    group: cert-manager.io

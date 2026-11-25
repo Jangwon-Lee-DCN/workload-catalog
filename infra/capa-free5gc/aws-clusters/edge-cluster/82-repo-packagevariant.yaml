@@ -1,0 +1,57 @@
+apiVersion: config.porch.kpt.dev/v1alpha1
+kind: PackageVariant
+metadata:
+  name: '@{edge-cluster-name}-repo'
+  namespace: default
+spec:
+  annotations:
+    approval.nephio.org/policy: initial
+  upstream:
+    repo: catalog-distros-sandbox
+    package: repository
+    revision: v2.0.0
+  downstream:
+    repo: mgmt
+    package: '@{edge-cluster-name}-repository'
+  injectors:
+    - kind: WorkloadCluster
+      name: '@{edge-cluster-name}'
+  pipeline:
+    mutators:
+      - image: ghcr.io/kptdev/krm-functions-catalog/set-annotations:v0.1.4
+        configMap:
+          nephio.org/cluster-name: '@{edge-cluster-name}'
+      - image: ghcr.io/kptdev/krm-functions-catalog/starlark@sha256:c347e28606fa1a608e8e02e03541a5a46e4a0152005df4a11e44f6c4ab1edd9a
+        configMap:
+          node-ip: '@{management-git-host}'
+          node-port: '@{management-git-port}'
+          cluster-name: '@{edge-cluster-name}'
+          source: |
+            cfg = ctx.resource_list["functionConfig"]["data"]
+            items = ctx.resource_list["items"]
+            found = False
+            for resource in items:
+                if resource.get("kind") == "ConfigMap" and resource["metadata"]["name"] == "repo-service-node-ip":
+                    resource["data"] = {"node-ip": cfg["node-ip"], "node-port": cfg["node-port"]}
+                    found = True
+            if not found:
+                items.append({"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "repo-service-node-ip", "annotations": {"config.kubernetes.io/local-config": "true"}}, "data": {"node-ip": cfg["node-ip"], "node-port": cfg["node-port"]}})
+            # Also set concrete URLs if this mutator runs after upstream rendering.
+            for resource in items:
+                kind = resource.get("kind")
+                repo_url = "http://" + cfg["node-ip"] + ":" + cfg["node-port"] + "/nephio/" + cfg["cluster-name"] + ".git"
+                if kind == "Repository" and resource.get("apiVersion", "").startswith("config.porch."):
+                    resource["spec"]["git"]["repo"] = repo_url
+                if kind == "Application":
+                    resource["spec"]["source"]["repoURL"] = repo_url
+                    resource["spec"]["source"]["targetRevision"] = "main"
+            # ArgoCD ignores set-*.yaml; local KPT inputs must not become live resources.
+            for resource in items:
+                kind = resource.get("kind")
+                name = resource.get("metadata", {}).get("name", "")
+                if kind == "WorkloadCluster" or (kind == "ConfigMap" and name == "repo-service-node-ip"):
+                    annotations = resource["metadata"].setdefault("annotations", {})
+                    annotations["config.kubernetes.io/local-config"] = "true"
+                    path = "set-workload-cluster.yaml" if kind == "WorkloadCluster" else "set-repo-service-node-ip.yaml"
+                    annotations["config.kubernetes.io/path"] = path
+                    annotations["internal.config.kubernetes.io/path"] = path

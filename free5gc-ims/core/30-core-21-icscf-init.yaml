@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ims-icscf-init
+  namespace: ims-lab
+  labels:
+    app.kubernetes.io/part-of: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-11'
+stringData:
+  start.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p /etc/kamailio_icscf /var/run/kamailio
+    for src in /config/*; do
+     rel=${src##*/}; rel=${rel//__/\/}; mkdir -p "/etc/kamailio_icscf/$(dirname "$rel")"; cp "$src" "/etc/kamailio_icscf/$rel"
+    done
+    until mysqladmin -h @{core-worker-ip} -u root ping --silent; do sleep 2; done
+    if ! mysql -h @{core-worker-ip} -u root -N -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='icscf'" | grep -q icscf; then
+     mysql -h @{core-worker-ip} -u root -e "CREATE DATABASE icscf"
+     mysql -h @{core-worker-ip} -u root icscf < /usr/local/src/kamailio/misc/examples/ims/icscf/icscf.sql
+    fi
+    mysql -h @{core-worker-ip} -u root -e "CREATE USER IF NOT EXISTS 'icscf'@'%' IDENTIFIED WITH mysql_native_password BY '@{kamailio-password}'; GRANT ALL ON icscf.* TO 'icscf'@'%'"
+    mysql -h @{core-worker-ip} -u root icscf -e "DELETE FROM s_cscf_capabilities; DELETE FROM s_cscf; INSERT INTO s_cscf(name,s_cscf_uri) VALUES ('ims-lab-scscf','sip:scscf.@{ims-domain}:6060'); INSERT INTO s_cscf_capabilities(id_s_cscf,capability) SELECT id,0 FROM s_cscf; INSERT INTO nds_trusted_domains(trusted_domain) SELECT '@{ims-domain}' WHERE NOT EXISTS(SELECT 1 FROM nds_trusted_domains WHERE trusted_domain='@{ims-domain}');"
+    exec kamailio -f /etc/kamailio_icscf/kamailio_icscf.cfg -P /run/kamailio_icscf.pid -m 64 -M 16 -DD -E -e

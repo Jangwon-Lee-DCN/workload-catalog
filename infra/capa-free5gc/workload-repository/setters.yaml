@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workload-repository-setters
+  annotations:
+    config.kubernetes.io/local-config: 'true'
+    argocd.argoproj.io/hook: Skip
+data:
+  namespace: default
+  catalog-name: catalog-ims-demo
+  catalog-url: https://github.com/Jangwon-Lee-DCN/workload-catalog.git
+  catalog-branch: feature/free5gc-core-edge-ims-packages
+  source: |
+    # Preserve parameterized fields across Porch's automatic render after clone/edit.
+    # The generated local-config file is excluded from ArgoCD by set-*.yaml.
+    cfg = ctx.resource_list["functionConfig"]["data"]
+    def replace_tokens(value):
+        for key in cfg:
+            if key != "source":
+                value = value.replace("@{" + key + "}", cfg[key])
+        return value
+
+    def identity(resource):
+        meta = resource.get("metadata", {})
+        return "|".join([resource.get("apiVersion", ""), resource.get("kind", ""), meta.get("namespace", ""), meta.get("name", "")])
+
+    def pointer_key(key):
+        return str(key).replace("~", "~0").replace("/", "~1")
+
+    items = ctx.resource_list["items"]
+    states = [r for r in items if r.get("kind") == "ConfigMap" and r.get("metadata", {}).get("name") == "blueprint-render-state"]
+    state = states[0] if states else {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "blueprint-render-state", "annotations": {"config.kubernetes.io/local-config": "true", "config.kubernetes.io/path": "set-render-state.yaml", "internal.config.kubernetes.io/path": "set-render-state.yaml"}}, "data": {}}
+    records = state["data"]
+    lookup = {}
+    for key in records:
+        if key.endswith("-resource") and not key.endswith("-rendered-resource"):
+            prefix = key[:-9]
+            lookup[records[key] + "|" + records[prefix + "-path"]] = prefix
+            rendered = records.get(prefix + "-rendered-resource")
+            if rendered != None:
+                lookup[rendered + "|" + records[prefix + "-path"]] = prefix
+    for resource in items:
+        if resource.get("metadata", {}).get("annotations", {}).get("config.kubernetes.io/local-config") == "true":
+            continue
+        rid = identity(resource)
+        used = []
+        pending = [(resource, key, "/" + pointer_key(key)) for key in resource]
+        for depth in range(64):
+            following = []
+            for parent, key, path in pending:
+                value = parent[key]
+                if type(value) == "string":
+                    token_key = rid + "|" + path
+                    prefix = lookup.get(token_key)
+                    # New upstream template text takes precedence over the stored render input.
+                    if "@{" in value and any(["@{" + name + "}" in value for name in cfg if name != "source"]):
+                        if prefix == None:
+                            prefix = "r" + str(len(records))
+                            lookup[token_key] = prefix
+                        records[prefix + "-resource"] = rid
+                        records[prefix + "-path"] = path
+                        records[prefix + "-template"] = value
+                    if prefix != None:
+                        used.append(prefix)
+                        parent[key] = replace_tokens(records[prefix + "-template"])
+                elif type(value) == "dict":
+                    following.extend([(value, child, path + "/" + pointer_key(child)) for child in value])
+                elif type(value) == "list":
+                    following.extend([(value, index, path + "/" + str(index)) for index in range(len(value))])
+            pending = following
+            if not pending:
+                break
+        for prefix in used:
+            records[prefix + "-rendered-resource"] = identity(resource)
+    if not states:
+        items.append(state)

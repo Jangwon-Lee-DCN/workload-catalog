@@ -1,0 +1,857 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-gpu-api
+  namespace: voice-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: voice-gpu-api-observer
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: voice-gpu-api-observer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: voice-gpu-api-observer
+subjects:
+- kind: ServiceAccount
+  name: voice-gpu-api
+  namespace: voice-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-kubeconfig
+  namespace: voice-system
+data:
+  kubeconfig: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: in-cluster
+        cluster:
+          server: https://kubernetes.default.svc:443
+          certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    users:
+      - name: voice-api
+        user:
+          tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    contexts:
+      - name: voice-api
+        context: {cluster: in-cluster, user: voice-api}
+    current-context: voice-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-gpu-api
+  namespace: voice-system
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 18000
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-gpu-api
+  template:
+    metadata:
+      labels:
+        app: voice-gpu-api
+      annotations:
+        cdi.k8s.io/gpu: nvidia.com/gpu=all
+    spec:
+      serviceAccountName: voice-gpu-api
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+      - name: wait-cache-and-stt
+        image: docker.io/jangwonlee/ims-gpu-api@sha256:9f97d0c997ad5bd57ddf9444358f9aaf0725e61b25ec294d87a9624aeb5902ca
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -ec
+        args:
+        - until test -f /cache-ready && test -f /bootstrap-state/services-ready && test -s /opt/voice-quality/manifest.json; do sleep 2; done
+        volumeMounts:
+        - name: cache-ready
+          mountPath: /cache-ready
+          readOnly: true
+        - name: stt
+          mountPath: /opt/voice-quality
+          readOnly: true
+        - name: bootstrap-state
+          mountPath: /bootstrap-state
+          readOnly: true
+      containers:
+      - name: api
+        image: docker.io/jangwonlee/ims-gpu-api@sha256:9f97d0c997ad5bd57ddf9444358f9aaf0725e61b25ec294d87a9624aeb5902ca
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: voice-gpu-api-config
+        - secretRef:
+            name: voice-gpu-api-secrets
+        env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: all
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: utility
+        - name: VOICE_KUBECONFIG
+          value: /etc/voice-kube/kubeconfig
+        - name: IMS_REFERENCE_MODE
+          value: xvector
+        - name: IMS_RESIDENT_SPEECH
+          value: '1'
+        ports:
+        - name: http
+          containerPort: 8090
+          hostPort: 8090
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+            nvidia.com/gpu: '1'
+          limits:
+            cpu: '12'
+            memory: 12Gi
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          periodSeconds: 2
+          failureThreshold: 90
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          periodSeconds: 3
+        volumeMounts:
+        - name: state
+          mountPath: /var/lib/voice-service
+        - name: stt
+          mountPath: /opt/voice-quality/model
+          subPath: model
+          readOnly: true
+        - name: stt
+          mountPath: /opt/voice-quality/manifest.json
+          subPath: manifest.json
+          readOnly: true
+        - name: kubeconfig
+          mountPath: /etc/voice-kube
+          readOnly: true
+        - name: pod-logs
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: cache
+          mountPath: /var/lib/gpu-cr/cache
+          readOnly: true
+          mountPropagation: HostToContainer
+        - name: pinned-gpu
+          mountPath: /var/lib/gpu-cr/pinned-gpu
+          readOnly: true
+          mountPropagation: HostToContainer
+        - name: resident
+          mountPath: /var/lib/voice-service/resident
+          readOnly: true
+          mountPropagation: HostToContainer
+        - name: cache-ready
+          mountPath: /cache-ready
+          readOnly: true
+        - name: api-code
+          mountPath: /app
+          readOnly: true
+      volumes:
+      - name: cache-ready
+        hostPath:
+          path: /run/voice-cache-ready
+          type: File
+      - name: state
+        hostPath:
+          path: /var/lib/voice-service
+          type: DirectoryOrCreate
+      - name: stt
+        hostPath:
+          path: /opt/voice-quality
+          type: DirectoryOrCreate
+      - name: kubeconfig
+        configMap:
+          name: voice-kubeconfig
+      - name: pod-logs
+        hostPath:
+          path: /var/log/pods
+          type: Directory
+      - name: cache
+        hostPath:
+          path: /var/lib/gpu-cr/cache
+          type: Directory
+      - name: pinned-gpu
+        hostPath:
+          path: /var/lib/gpu-cr/pinned-gpu
+          type: Directory
+      - name: resident
+        hostPath:
+          path: /var/lib/voice-service/resident
+          type: Directory
+      - name: bootstrap-state
+        hostPath:
+          path: /run/voice-bootstrap
+          type: DirectoryOrCreate
+      - name: api-code
+        configMap:
+          name: voice-gpu-api-code
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-gpu-api
+  namespace: voice-system
+spec:
+  selector:
+    app: voice-gpu-api
+  ports:
+  - name: http
+    port: 8090
+    targetPort: 8090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-gpu-api-config
+  namespace: voice-system
+data:
+  KOURIER_URL: http://kourier-internal.kourier-system.svc.cluster.local
+  AISRC_HOST: sasv-restored.sasv-restore-lab.gpu.internal
+  IMS_GENERATION_HOST: voice-ims-fast.qwen-tts-lab.gpu.internal
+  VOICE_KUBECONFIG: /etc/voice-kube/kubeconfig
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-gpu-api-code
+  namespace: voice-system
+data:
+  gpu_metrics.py: |
+    """Cached GPU and current Pod observations, collected on the GPU host."""
+    import json
+    import os
+    import re
+    import subprocess
+    import time
+    from pathlib import Path
+
+
+    def tmpfs_mounts():
+        result=set()
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            fields=line.split();separator=fields.index('-')
+            if fields[separator+1]=='tmpfs':
+                path=re.sub(r'\\([0-7]{3})',lambda m:chr(int(m[1],8)),fields[4])
+                result.add(os.path.realpath(path))
+        return result
+
+
+    def cache_fs_info(path):
+        stat=os.stat(path);usage=os.statvfs(path)
+        return stat.st_dev,(usage.f_blocks-usage.f_bfree)*usage.f_frsize
+
+
+    def cache_usage():
+        """Allocated tmpfs blocks, not RSS, mlock proof, or additive VRAM usage."""
+        try:
+            paths=json.loads(os.getenv('GPU_CACHE_PATHS','["/var/lib/gpu-cr/cache","/var/lib/gpu-cr/pinned-gpu","/var/lib/voice-service/resident"]'))
+            if not isinstance(paths,list) or not 1<=len(paths)<=8 or not all(isinstance(p,str) and os.path.isabs(p) for p in paths):raise ValueError()
+            mounted=tmpfs_mounts();devices={}
+            for path in paths:
+                real=os.path.realpath(path)
+                if real not in mounted:return {'ram_cache_used_bytes':None,'ram_cache_status':'incomplete'}
+                device,used=cache_fs_info(real);devices[device]=used
+            return {'ram_cache_used_bytes':sum(devices.values()),'ram_cache_status':'measured',
+                    'ram_cache_filesystems':len(devices),'ram_cache_measurement':'tmpfs-allocated-blocks'}
+        except (OSError,ValueError,IndexError):return {'ram_cache_used_bytes':None,'ram_cache_status':'unavailable'}
+
+
+    def pod_logs(pod,container):
+        root=Path('/var/log/pods')/(pod['metadata']['namespace']+'_'+pod['metadata']['name']+'_'+pod['metadata']['uid'])/container
+        files=list(root.glob('*.log'))
+        if not files:return ''
+        latest=max(files,key=lambda p:p.stat().st_mtime)
+        with latest.open('rb') as f:
+            f.seek(max(0,latest.stat().st_size-65536))
+            return f.read().decode(errors='replace')
+
+
+    def sample():
+        now=time.time()
+        out={'status':'online','sampled_at':now,'models':[],'model_events':[]}
+        def call(*args):return subprocess.check_output(args,text=True,timeout=8,stderr=subprocess.DEVNULL)
+        raw=call('nvidia-smi','--query-gpu=memory.used,memory.total,utilization.gpu','--format=csv,noheader,nounits').strip().split(',')
+        out.update(memory_used=int(raw[0]),memory_total=int(raw[1]),utilization=int(raw[2]))
+        mem={x.split(':')[0]:int(x.split()[1])*1024 for x in open('/proc/meminfo')}
+        out['ram_available']=mem['MemAvailable']
+        out['ram_total']=mem['MemTotal']
+        out.update(cache_usage())
+        cmd=['kubectl','--kubeconfig='+os.getenv('VOICE_KUBECONFIG','/etc/kubernetes/admin.conf')]
+        pods=json.loads(call(*cmd,'get','pods','-A','-o','json'))['items']
+        for name in ['voice-ims-fast','sasv-restored']:
+            selected=[p for p in pods if p['metadata'].get('labels',{}).get('serving.knative.dev/service')==name]
+            ready=sum(any(c['type']=='Ready' and c['status']=='True' for c in p.get('status',{}).get('conditions',[])) for p in selected)
+            details=[]
+            for p in selected:
+                details.append({'name':p['metadata']['name'],'phase':p.get('status',{}).get('phase'),
+                                'node':p.get('spec',{}).get('nodeName'),'terminating':bool(p['metadata'].get('deletionTimestamp')),
+                                'reasons':[s.get('state',{}).get('waiting',{}).get('reason') for s in p.get('status',{}).get('containerStatuses',[]) if s.get('state',{}).get('waiting')],
+                                'created':p['metadata'].get('creationTimestamp')})
+            out['models'].append({'name':name,'pods':len(selected),'ready':ready,
+                                  'phases':[p.get('status',{}).get('phase') for p in selected],'restored':False,'details':details})
+        for p in pods:
+            service=p['metadata'].get('labels',{}).get('serving.knative.dev/service')
+            if not service:continue
+            containers=[c['name'] for c in p['spec']['containers'] if c['name'] in ('voice-api','sasv-api','server','app','guard','restore-guard')]
+            for container in containers:
+                try:
+                    logs=pod_logs(p,container)
+                    if 'restore ACK sent' in logs:
+                        for model in out['models']:
+                            if model['name']==service:model['restored']=True
+                    for line in logs.splitlines():
+                        if 'VOICE_OBS ' not in line:continue
+                        try:
+                            event=json.loads(line.split('VOICE_OBS ',1)[1])
+                            if event.get('id') and event.get('phase') and event.get('at'):
+                                event.update(pod=p['metadata']['name'],model=service)
+                                out['model_events'].append(event)
+                        except ValueError:pass
+                except Exception:pass
+        return out
+  model_scores.py: |
+    """Extract only the matching inference's numeric log record; never use warmup data."""
+    import ast,json,math,pathlib,re,time
+
+    MODEL='MDT_241214_lora_250501'
+
+    def parse_scores(logs,request_id,prediction):
+     if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}',request_id) or prediction not in ('Real','Fake'):return None
+     active=False;scores=None
+     for line in logs.splitlines():
+      if 'Received file:' in line and 'UID:' in line:
+       active=bool(re.search(r'UID:\s*'+re.escape(request_id)+r'\s*,',line));scores=None
+      if not active:continue
+      if 'Full detection result:' in line:
+       try:
+        values=ast.literal_eval(line.split('Full detection result:',1)[1].strip())[MODEL]
+        if not isinstance(values,dict):continue
+        scores={k:float(values[k]) for k in ('spoof','bonafide','confidence') if type(values.get(k)) in (int,float) and math.isfinite(values[k])}
+        if set(scores)!=set(('spoof','bonafide','confidence')) or not all(0<=scores[k]<=100 for k in ('spoof','bonafide')):scores=None
+       except (ValueError,SyntaxError,TypeError,KeyError):scores=None
+      if ': {' in line:
+       try:result=json.loads(line[line.index('{'):])
+       except (ValueError,TypeError):continue
+       if isinstance(result,dict) and result.get(request_id)==prediction and scores:
+        return {**scores,'source':'model_log','request_id':request_id}
+     return None
+
+    def read_scores(pod,request_id,prediction,root='/var/log/pods'):
+     if not isinstance(pod,str) or not re.fullmatch(r'sasv-restored-[a-z0-9-]{1,200}',pod):return None
+     for attempt in range(3):
+      try:
+       dirs=list(pathlib.Path(root).glob('sasv-restore-lab_'+pod+'_*'))
+       files=[p for d in dirs for p in [*d.glob('sasv-api/*.log'),*d.glob('*.log')] if p.parent.name=='sasv-api' or re.fullmatch(r'[a-f0-9]{64}\.log',p.name)]
+       files=sorted(files,key=lambda p:p.stat().st_mtime,reverse=True)[:2]
+      except OSError:return None
+      for path in files:
+       try:
+        with path.open('rb') as f:f.seek(max(0,path.stat().st_size-262144));logs=f.read(262144).decode(errors='replace')
+        result=parse_scores(logs,request_id,prediction)
+        if result:return result
+       except OSError:continue
+      if attempt<2:time.sleep(.05)
+     return None
+  ims_speech_worker.py: |
+    """Resident, private CPU speech recognizer. JSON lines over anonymous pipes only."""
+    import base64,io,json,math,resource,sys,time,wave
+    from pathlib import Path
+    from faster_whisper import WhisperModel
+    REVISION='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
+    assert json.loads(Path('/opt/voice-quality/manifest.json').read_text())['revision']==REVISION
+    model=WhisperModel('/opt/voice-quality/model',device='cpu',compute_type='int8',cpu_threads=8,num_workers=1,local_files_only=True)
+    original_encode=model.encode
+    print(json.dumps({'ready':True,'model_revision':REVISION}),flush=True)
+    for line in sys.stdin:
+     try:
+      request=json.loads(line);data=base64.b64decode(request['audio'],validate=True)
+      if not 0<len(data)<=6_000_000:raise ValueError('audio size')
+      language=request.get('language');assert language in (None,'ko','en')
+      compact=request.get('compact_quality',False) is True;frames=3000
+      if compact:
+       with wave.open(io.BytesIO(data)) as w:duration=w.getnframes()/w.getframerate()
+       # Keep the entire waveform plus two seconds of feature padding. Only excess
+       # trailing padding is omitted from encoder work, never any supplied audio.
+       frames=min(3000,2*math.ceil((duration*100+200)/2))
+       model.encode=lambda features:original_encode(features[...,:frames])
+      start=time.monotonic();segments,info=model.transcribe(io.BytesIO(data),language=language,beam_size=5,condition_on_previous_text=False,vad_filter=True,vad_parameters={'min_silence_duration_ms':500},without_timestamps=compact);segments=list(segments)
+      duration=sum(max(.001,s.end-s.start) for s in segments)
+      result={'transcript':' '.join(s.text.strip() for s in segments),'language':info.language,'avg_logprob':sum(s.avg_logprob*max(.001,s.end-s.start) for s in segments)/duration if duration else -100,'model_revision':REVISION,'seconds':time.monotonic()-start,'encoded_frames':frames,'compact_quality':compact,'peak_rss_bytes':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024}
+     except Exception:result={'error':'Speech recognition failed'}
+     finally:model.encode=original_encode
+     print(json.dumps(result,ensure_ascii=False),flush=True)
+  ims_generation.py: |
+    """Authenticated, ephemeral IMS voice generation. No classification or asset storage."""
+    import asyncio,base64,io,json,os,re,time,uuid,wave
+    from pathlib import Path
+    import httpx
+    from fastapi import APIRouter,HTTPException,Request,Response
+    import generation_quality
+    _GATE=asyncio.Semaphore(1)
+    MODEL_HOST=os.environ.get('IMS_GENERATION_HOST','voice-ims-fast.qwen-tts-lab.gpu.internal')
+    REFERENCE_MODE=os.environ.get('IMS_REFERENCE_MODE','icl')
+    RESIDENT_SPEECH=os.environ.get('IMS_RESIDENT_SPEECH','0')=='1'
+    assert REFERENCE_MODE in ('icl','xvector')
+
+    async def normalized_reference(sample):
+     # Normalize before entering the model so 8kHz references do not trigger its
+     # first-use Python/Numba resampling initialization after every restore.
+     with wave.open(io.BytesIO(sample)) as w:
+      rate=w.getframerate();frames=w.getnframes();pcm=w.readframes(frames)
+     if rate==24000:return sample
+     proc=await asyncio.create_subprocess_exec('ffmpeg','-hide_banner','-loglevel','error','-f','s16le','-ar','8000','-ac','1','-i','pipe:0','-ar','24000','-ac','1','-f','s16le','pipe:1',stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+     try:
+      data,_=await asyncio.wait_for(proc.communicate(pcm),timeout=10)
+      if proc.returncode or len(data)!=frames*3*2:raise HTTPException(503,'Reference normalization failed')
+      b=io.BytesIO()
+      with wave.open(b,'wb') as w:w.setparams((1,2,24000,0,'NONE',''));w.writeframes(data)
+      return b.getvalue()
+     finally:
+      if proc.returncode is None:proc.kill();await proc.wait()
+
+    async def transcribe_reference(sample):
+     if RESIDENT_SPEECH:
+      import ims_speech
+      o=await ims_speech.transcribe(sample)
+      if not o['transcript'] or o['avg_logprob']<-1.0:raise HTTPException(422,'Reference speech could not be recognized')
+      return o
+     p=await asyncio.create_subprocess_exec('/opt/voice-quality/runtime/bin/python',str(Path(__file__).with_name('ims_reference_worker.py')),stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+     try:
+      stdout,_=await asyncio.wait_for(p.communicate(sample),timeout=75)
+      if p.returncode:raise HTTPException(503,'Reference transcription unavailable')
+      o=json.loads(stdout)
+      if not isinstance(o.get('transcript'),str) or not 1<=len(o['transcript'])<=2000 or o.get('avg_logprob',-100)<-1.0:raise HTTPException(422,'Reference speech could not be recognized')
+      return o
+     finally:
+      if p.returncode is None:p.kill();await p.wait()
+
+    def parse_input(b):
+     if not isinstance(b,dict) or not isinstance(b.get('text'),str) or not 1<=len(b['text'])<=300:raise HTTPException(400,'Invalid synthesis text')
+     if b.get('model','base')!='base':raise HTTPException(400,'Unsupported IMS generation model')
+     try:
+      sample=base64.b64decode(b['reference_wav_b64'],validate=True)
+      with wave.open(io.BytesIO(sample)) as w:
+       rate=w.getframerate();frames=w.getnframes()
+       if w.getnchannels()!=1 or w.getsampwidth()!=2 or rate not in (8000,24000) or not 8<=frames/rate<=180:raise ValueError()
+       pcm=w.readframes(frames)
+       if len(pcm)!=frames*2:raise ValueError()
+      normalized=io.BytesIO()
+      with wave.open(normalized,'wb') as w:w.setparams((1,2,rate,0,'NONE',''));w.writeframes(pcm)
+     except (ValueError,KeyError,TypeError,wave.Error,EOFError):raise HTTPException(400,'Invalid reference WAV') from None
+     rid=b.get('request_id') or 'ims-gen-'+uuid.uuid4().hex
+     if not isinstance(rid,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',rid):raise HTTPException(400,'Invalid request ID')
+     return normalized.getvalue(),rid
+
+    def build_router(begin_trace,trace_phase,normalize_wav):
+     router=APIRouter()
+     if RESIDENT_SPEECH:
+      @router.on_event('startup')
+      async def start_recognizer():
+       import ims_speech
+       await ims_speech.warm()
+      @router.on_event('shutdown')
+      async def stop_recognizer():
+       import ims_speech
+       await ims_speech._stop()
+     @router.post('/internal/ims-prepare')
+     async def prepare():
+      async with httpx.AsyncClient(trust_env=False,timeout=120) as c:
+       r=await c.get(os.environ['KOURIER_URL']+'/healthz',headers={'Host':MODEL_HOST});r.raise_for_status()
+      return {'ready':True,'model':'qwen3-tts-base-1.7b'}
+     async def generate(request:Request):
+      if int(request.headers.get('content-length','0'))>12000000:raise HTTPException(413,'Reference request too large')
+      b=await request.json();sample,rid=parse_input(b);started=time.monotonic()
+      begin_trace(request,'ims-generation',rid,'generation','voice-ims-fast','Korean')
+      async with _GATE:
+       if REFERENCE_MODE=='xvector':sample=await normalized_reference(sample)
+       async with httpx.AsyncClient(trust_env=False,timeout=180) as c:
+        wake=asyncio.create_task(c.get(os.environ['KOURIER_URL']+'/healthz',headers={'Host':MODEL_HOST}))
+        try:
+         body={'text':b['text'],'reference':base64.b64encode(sample).decode(),'language':'Korean','reference_mode':REFERENCE_MODE}
+         if REFERENCE_MODE=='icl':
+          trace_phase(rid,'reference_transcribing');reference=await transcribe_reference(sample)
+          trace_phase(rid,'reference_transcribed',reference_language=reference['language']);body['ref_text']=reference['transcript']
+         else:trace_phase(rid,'reference_conditioning',reference_mode='xvector',reference_bytes=len(sample))
+         (await wake).raise_for_status()
+        finally:
+         if not wake.done():wake.cancel()
+         await asyncio.gather(wake,return_exceptions=True)
+        for attempt in range(1,4):
+         trace_phase(rid,'model_requested',attempt=attempt)
+         r=await c.post(os.environ['KOURIER_URL']+'/infer',headers={'Host':MODEL_HOST,'X-Request-ID':rid+'-'+str(attempt)},json=body);r.raise_for_status()
+         if r.headers.get('X-Voice-Contract')!='dynamic-v1':raise HTTPException(503,'Dynamic generation contract missing')
+         timing=json.loads(r.headers.get('X-Generation-Timing','{}'))
+         if REFERENCE_MODE=='xvector' and timing.get('reference_mode')!='xvector':raise HTTPException(503,'Reference conditioning contract missing')
+         data=normalize_wav(r.content);trace_phase(rid,'quality_checking',pod=r.headers.get('X-Restore-Pod'))
+         try:
+          if RESIDENT_SPEECH:
+           import ims_speech
+           quality=await ims_speech.validate(data,b['text'],'Korean')
+          else:quality=await generation_quality.validate(data,b['text'],'Korean')
+         except generation_quality.QualityUnavailable:raise HTTPException(503,'Generated speech content check unavailable') from None
+         trace_phase(rid,'quality_checked',passed=quality.get('passed',False),character_error_rate=quality.get('character_error_rate'),quality_seconds=quality.get('seconds'))
+         if quality.get('passed'):
+          trace_phase(rid,'generation_returned_to_ue',pod=r.headers.get('X-Restore-Pod'))
+          return Response(data,media_type='audio/wav',headers={'X-Generation-Seconds':str(round(time.monotonic()-started,3)),'X-Generation-Model':'qwen3-tts-base-1.7b','X-Generation-Pod':r.headers.get('X-Restore-Pod',''),'X-Generation-Attempts':str(attempt),'X-Content-Check':'passed','X-Quality-Seconds':str(quality.get('seconds','')),'X-Generation-Timing':json.dumps(timing),'X-Request-ID':rid})
+       raise HTTPException(422,'Generated speech did not pass content validation')
+     @router.post('/internal/ims-generate')
+     async def bounded_generate(request:Request):
+      try:return await asyncio.wait_for(generate(request),timeout=360)
+      except asyncio.TimeoutError:raise HTTPException(504,'GPU generation deadline exceeded') from None
+      except (httpx.RequestError,httpx.HTTPStatusError):raise HTTPException(503,'GPU generation temporarily unavailable') from None
+     return router
+  api.py: |
+    """IMS GPU gateway: authenticated transient audio, Knative calls and real observations."""
+    import asyncio,base64,hashlib,hmac,io,json,os,re,time,wave
+    from contextlib import asynccontextmanager
+    from pathlib import Path
+    import httpx
+    from fastapi import FastAPI,HTTPException,Request
+    from fastapi.responses import JSONResponse
+    import gpu_metrics,model_scores
+
+    TOKEN=os.environ.get('SERVICE_TOKEN','')
+    if len(TOKEN)<24:raise RuntimeError('SERVICE_TOKEN is missing or too short')
+    TRACES={}; METRICS={'status':'starting','sampled_at':0,'models':[]}
+    TERMINAL={'complete','error','failed','cancelled','canceled','rejected','timed_out'}
+
+    def identifier(value):
+        if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',value):
+            raise HTTPException(400,'Invalid request ID')
+        return value
+
+    def begin_trace(request,owner,rid,kind,model=None,language=None,parent=None):
+        identifier(rid)
+        if not isinstance(owner,str) or not 1<=len(owner)<=100:raise HTTPException(400,'Invalid owner')
+        if rid in TRACES:raise HTTPException(409,'Request ID already used')
+        if len(TRACES)>=512:
+            done=[key for key,t in TRACES.items() if t['phase'] in TERMINAL]
+            if not done:raise HTTPException(429,'Too many requests')
+            del TRACES[done[0]]
+        request.state.trace_id=rid
+        TRACES[rid]={'id':rid,'owner':owner,'kind':kind,'model':model,'parent':parent,'phase':'accepted','marks':[{'phase':'accepted','at':time.time()}]}
+
+    def trace_phase(rid,phase,**fields):
+        if rid not in TRACES:return
+        item=TRACES[rid];mark={'phase':phase,'at':time.time(),**fields}
+        item['marks'].append(mark);item['marks']=item['marks'][-64:]
+        item.update(phase=phase)
+        if fields.get('pod'):item['pod']=fields['pod']
+
+    def wav(data):
+        try:
+            if not 44<=len(data)<=6_000_000:raise ValueError()
+            with wave.open(io.BytesIO(data)) as w:
+                n=w.getnframes();rate=w.getframerate()
+                if w.getnchannels()!=1 or w.getsampwidth()!=2 or rate not in (8000,16000,22050,24000,44100,48000) or not .1<=n/rate<=180:raise ValueError()
+                if len(w.readframes(n))!=n*2:raise ValueError()
+            return data
+        except (EOFError,wave.Error,ValueError):raise HTTPException(400,'Invalid PCM16 mono WAV') from None
+
+    async def samples():
+        global METRICS
+        while True:
+            try:
+                observation=await asyncio.to_thread(gpu_metrics.sample)
+                for event in observation.get('model_events',[]):
+                    item=TRACES.get(event.get('id'))
+                    if item and event.get('phase')=='model_started':
+                        if not any(m.get('phase')=='model_started' and m.get('pod')==event.get('pod') for m in item['marks']):
+                            item['marks'].append(event)
+                METRICS=observation
+            except Exception:
+                # Keep the last successful sample timestamp; never fabricate online/zero Pods.
+                METRICS={**METRICS,'status':'unavailable'}
+            await asyncio.sleep(1)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        import ims_speech
+        await ims_speech.warm()
+        task=asyncio.create_task(samples())
+        try:yield
+        finally:
+            task.cancel();await asyncio.gather(task,return_exceptions=True);await ims_speech._stop()
+
+    app=FastAPI(lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+
+    @app.middleware('http')
+    async def boundary(request,call_next):
+        if request.url.path!='/healthz':
+            supplied=request.headers.get('Authorization','')
+            if not hmac.compare_digest(supplied,'Bearer '+TOKEN):return JSONResponse({'detail':'Unauthorized'},401)
+        if request.method=='POST':
+            body=bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body)>12_000_000:return JSONResponse({'detail':'Request too large'},413)
+            request._body=bytes(body)
+        rid=request.headers.get('X-Request-ID','')
+        try:
+            response=await call_next(request)
+            # Generation IDs can be supplied in JSON rather than the request header.
+            trace_id=getattr(request.state,'trace_id',None)
+            if trace_id:trace_phase(trace_id,'complete' if response.status_code<400 else 'error')
+            return response
+        except Exception:
+            trace_id=getattr(request.state,'trace_id',None)
+            if trace_id:trace_phase(trace_id,'error')
+            return JSONResponse({'detail':'GPU request failed'},503)
+
+    @app.get('/healthz')
+    def health():
+        return {'ok':Path('/cache-ready').is_file(),'role':'gpu'} if Path('/cache-ready').is_file() else JSONResponse({'ok':False},503)
+
+    @app.get('/internal/metrics')
+    def metrics():return {**METRICS,'requests':list(TRACES.values())}
+
+    @app.post('/internal/verify')
+    async def verify(request:Request):
+        rid=None
+        try:
+            b=await request.json()
+            if not isinstance(b,dict):raise HTTPException(400,'Invalid verification request')
+            rid=identifier(b.get('request_id'))
+            data=wav(base64.b64decode(b['audio'],validate=True))
+            begin_trace(request,b.get('owner','ims-mec'),rid,'verification','sasv-restored',parent=b.get('parent'))
+            start=time.monotonic();trace_phase(rid,'model_requested')
+            async with httpx.AsyncClient(trust_env=False,timeout=180) as c:
+                r=await c.post(os.environ['KOURIER_URL']+'/detect/MDT_241214_lora_250501',headers={'Host':os.environ['AISRC_HOST'],'X-Request-ID':rid},data={'uid':rid,'is_confidence':'true'},files={'file':('sample.wav',data,'audio/wav')})
+                r.raise_for_status()
+            result=r.json();prediction=result.get(rid);pod=r.headers.get('X-Restore-Pod')
+            if prediction not in ('Real','Fake') or not pod:raise HTTPException(502,'Invalid detector response')
+            trace_phase(rid,'model_response',pod=pod)
+            scores=await asyncio.to_thread(model_scores.read_scores,pod,rid,prediction)
+            trace_phase(rid,'complete',pod=pod)
+            return {'prediction':prediction,'raw':result,'sha256':hashlib.sha256(data).hexdigest(),'seconds':time.monotonic()-start,'pod':pod,'scores':scores}
+        except HTTPException:
+            if getattr(request.state,'trace_id',None)==rid and rid in TRACES and TRACES[rid]['phase'] not in TERMINAL:trace_phase(rid,'error')
+            raise
+        except (KeyError,TypeError,ValueError):
+            if getattr(request.state,'trace_id',None)==rid and rid:trace_phase(rid,'error')
+            raise HTTPException(400,'Invalid verification request') from None
+        except Exception:
+            if getattr(request.state,'trace_id',None)==rid and rid:trace_phase(rid,'error')
+            raise HTTPException(503,'Detector temporarily unavailable') from None
+
+    from ims_generation import build_router
+    app.include_router(build_router(begin_trace,trace_phase,wav))
+  ims_reference_worker.py: |
+    """CPU-only automatic transcription for an actual IMS voice reference."""
+    import io,json,sys
+    from pathlib import Path
+    from faster_whisper import WhisperModel
+
+    def main():
+     manifest=json.loads(Path('/opt/voice-quality/manifest.json').read_text())
+     if manifest.get('revision')!='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf':raise RuntimeError('unexpected STT model')
+     model=WhisperModel('/opt/voice-quality/model',device='cpu',compute_type='int8',cpu_threads=8,num_workers=1,local_files_only=True)
+     segments,info=model.transcribe(io.BytesIO(sys.stdin.buffer.read(600000)),language=None,beam_size=5,condition_on_previous_text=False,vad_filter=True)
+     segments=list(segments);duration=sum(max(.001,s.end-s.start) for s in segments)
+     print(json.dumps({'transcript':' '.join(s.text.strip() for s in segments),'language':info.language,'avg_logprob':sum(s.avg_logprob*max(.001,s.end-s.start) for s in segments)/duration if duration else -100},ensure_ascii=False))
+    if __name__=='__main__':main()
+  quality_worker.py: |
+    """Private local CPU recognizer. No network and no expected-text prompt."""
+    import io
+    import json
+    import resource
+    import sys
+    from pathlib import Path
+
+    from faster_whisper import WhisperModel
+
+    REVISION='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
+
+
+    def main():
+        language={'Korean':'ko','English':'en'}[sys.argv[1]]
+        manifest=json.loads(Path('/opt/voice-quality/manifest.json').read_text())
+        assert manifest['revision']==REVISION
+        model=WhisperModel('/opt/voice-quality/model',device='cpu',compute_type='int8',
+                          cpu_threads=8,num_workers=1,local_files_only=True)
+        segments,info=model.transcribe(io.BytesIO(sys.stdin.buffer.read(20*1024*1024+1)),
+            language=language,beam_size=5,condition_on_previous_text=False,vad_filter=True,
+            vad_parameters={'min_silence_duration_ms':500})
+        segments=list(segments)
+        duration=sum(max(.001,s.end-s.start) for s in segments)
+        logprob=sum(s.avg_logprob*max(.001,s.end-s.start) for s in segments)/duration if duration else -100
+        print(json.dumps({'transcript':' '.join(s.text.strip() for s in segments),
+            'avg_logprob':logprob,'model_revision':REVISION,'language':language,
+            'peak_rss_bytes':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024},ensure_ascii=False))
+
+
+    if __name__=='__main__':main()
+  generation_quality.py: |
+    """Fail-closed generated-speech content gate; never certifies naturalness/truth.
+
+    Rejected bytes stay in memory only. The CPU recognizer runs in an isolated,
+    bounded subprocess so a hung decoder can be killed without blocking the API.
+    """
+    import asyncio
+    import hashlib
+    import io
+    import json
+    import math
+    import re
+    import time
+    import unicodedata
+    from pathlib import Path
+
+    POLICY='stt-content-v1'
+    MODEL_REVISION='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
+    MAX_ATTEMPTS=3
+    _slots=asyncio.Semaphore(2)
+
+
+    class QualityUnavailable(RuntimeError):
+        pass
+
+
+    def normalized(text,language):
+        text=unicodedata.normalize('NFKC',text).casefold()
+        if language=='Korean':
+            text=re.sub(r'\bgpu\b','지피유',text)
+            text=re.sub(r'\bai\b','에이아이',text)
+        return ''.join(c for c in text if c.isalnum())
+
+
+    def distance(a,b):
+        row=list(range(len(b)+1))
+        for i,x in enumerate(a,1):
+            nxt=[i]
+            for j,y in enumerate(b,1):nxt.append(min(nxt[-1]+1,row[j]+1,row[j-1]+(x!=y)))
+            row=nxt
+        return row[-1]
+
+
+    def assess(expected,recognized,language):
+        confidence=recognized.get('avg_logprob')
+        if not isinstance(recognized.get('transcript'),str) or type(confidence) not in (float,int) or not math.isfinite(confidence):
+            raise QualityUnavailable('STT 응답 형식이 올바르지 않습니다.')
+        target=normalized(expected,language)
+        transcript=recognized.get('transcript','')
+        actual=normalized(transcript,language)
+        if not target or len(target)>2000 or len(actual)>4000:
+            raise QualityUnavailable('검증할 문장 또는 STT 응답 형식이 올바르지 않습니다.')
+        cer=distance(target,actual)/len(target)
+        limit=.10 if len(target)<15 else .18
+        reasons=[]
+        if not actual:reasons.append('음성이 인식되지 않았습니다')
+        if cer>limit:reasons.append('요청 문장과 다른 내용·누락·반복이 감지되었습니다')
+        if confidence<-1.0:reasons.append('음성 인식 신뢰도가 낮습니다')
+        return {'policy':POLICY,'passed':not reasons,'transcript':transcript,
+                'character_error_rate':round(cer,4),'maximum_error_rate':limit,
+                'reasons':reasons,'recognizer':'faster-whisper-large-v3-turbo/cpu-int8',
+                'model_revision':MODEL_REVISION,'language':language}
+
+
+    async def validate(data,text,language):
+        if language not in ('Korean','English'):raise QualityUnavailable('지원하지 않는 검증 언어입니다.')
+        # Already-normalized bytes are checked and then stored unchanged by app.py.
+        import numpy as np
+        import soundfile as sf
+        samples,rate=sf.read(io.BytesIO(data),always_2d=True)
+        if not len(samples) or not np.isfinite(samples).all():
+            raise QualityUnavailable('생성 음성을 읽을 수 없습니다.')
+        if float(np.sqrt(np.mean(samples*samples)))<.001 or float(np.max(np.abs(samples)))<.005:
+            return {'policy':POLICY,'passed':False,'reasons':['무음 또는 지나치게 작은 음성입니다'],
+                    'transcript':'','sha256':hashlib.sha256(data).hexdigest(),'seconds':0}
+        start=time.monotonic()
+        async with _slots:
+            proc=None
+            try:
+                proc=await asyncio.create_subprocess_exec('/opt/voice-quality/runtime/bin/python',
+                    str(Path(__file__).with_name('quality_worker.py')),language,
+                    stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+                stdout,stderr=await asyncio.wait_for(proc.communicate(data),timeout=75)
+                if proc.returncode:raise QualityUnavailable('STT 검증기를 사용할 수 없습니다. 검증 없이 음성을 제공하지 않습니다.')
+                recognized=json.loads(stdout)
+                if recognized.get('model_revision')!=MODEL_REVISION:raise ValueError('Wrong recognizer revision')
+                result=assess(text,recognized,language)
+            except asyncio.CancelledError:
+                raise
+            except QualityUnavailable:raise
+            except Exception as exc:
+                raise QualityUnavailable('STT 검증에 실패했습니다. 검증 없이 음성을 제공하지 않습니다.') from exc
+            finally:
+                if proc is not None and proc.returncode is None:
+                    proc.kill();await proc.wait()
+        return {**result,'sha256':hashlib.sha256(data).hexdigest(),'seconds':round(time.monotonic()-start,3),
+                'peak_rss_bytes':recognized.get('peak_rss_bytes')}
+  ims_speech.py: |
+    """Bounded persistent CPU recognizer, isolated from the GPU API interpreter."""
+    import asyncio,base64,hashlib,io,json,math
+    from pathlib import Path
+    import generation_quality
+    _lock=asyncio.Lock()
+    _process=None
+    async def _stop():
+     global _process
+     p,_process=_process,None
+     if p and p.returncode is None:p.kill();await p.wait()
+    async def _start():
+     global _process
+     if _process is None or _process.returncode is not None:
+      _process=await asyncio.create_subprocess_exec('/opt/voice-quality/runtime/bin/python',str(Path(__file__).with_name('ims_speech_worker.py')),stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL,limit=100000)
+      ready=json.loads(await asyncio.wait_for(_process.stdout.readline(),timeout=30))
+      if ready.get('model_revision')!=generation_quality.MODEL_REVISION:raise RuntimeError('Recognizer revision mismatch')
+    async def warm():
+     async with _lock:
+      try:await _start()
+      except BaseException:await _stop();raise
+    async def transcribe(data,language=None,compact_quality=False):
+     async with _lock:
+      try:
+       await _start();_process.stdin.write((json.dumps({'audio':base64.b64encode(data).decode(),'language':language,'compact_quality':compact_quality})+'\n').encode());await _process.stdin.drain()
+       result=json.loads(await asyncio.wait_for(_process.stdout.readline(),timeout=75))
+       if result.get('model_revision')!=generation_quality.MODEL_REVISION or not isinstance(result.get('transcript'),str) or not math.isfinite(result.get('avg_logprob',float('nan'))):raise RuntimeError('Recognizer response invalid')
+       return result
+      except BaseException:await _stop();raise
+    async def validate(data,text,language):
+     import numpy as np,soundfile as sf
+     samples,rate=sf.read(io.BytesIO(data),always_2d=True)
+     if not len(samples) or not np.isfinite(samples).all():raise generation_quality.QualityUnavailable('Invalid generated audio')
+     if float(np.sqrt(np.mean(samples*samples)))<.001 or float(np.max(np.abs(samples)))<.005:return {'passed':False,'reasons':['Silent generated audio']}
+     try:
+      recognized=await transcribe(data,{'Korean':'ko','English':'en'}[language],compact_quality=True)
+      result=generation_quality.assess(text,recognized,language)
+      seconds=recognized['seconds']
+      if not result['passed']:
+       # Preserve the original recognizer path for uncertain shortened-padding
+       # results; no missing or failed content check is accepted.
+       recognized=await transcribe(data,{'Korean':'ko','English':'en'}[language])
+       result=generation_quality.assess(text,recognized,language);seconds+=recognized['seconds']
+     except Exception as exc:raise generation_quality.QualityUnavailable('Generated speech recognition unavailable') from exc
+     return {**result,'sha256':hashlib.sha256(data).hexdigest(),'seconds':seconds,'peak_rss_bytes':recognized['peak_rss_bytes']}

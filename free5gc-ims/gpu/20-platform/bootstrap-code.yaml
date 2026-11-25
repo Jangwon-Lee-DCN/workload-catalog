@@ -1,0 +1,976 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-install-code
+  namespace: gpu-cr-system
+data:
+  bootstrap.py: |
+    """Public orchestration; checkpoint implementation is supplied as prebuilt node binaries."""
+    import base64,hashlib,http.client,json,os,pathlib,secrets,socket,ssl,sys,time,urllib.error,urllib.request
+
+    ROOT=pathlib.Path('/var/run/secrets/kubernetes.io/serviceaccount')
+    NS='gpu-cr-system'
+    MODELS=[('detector','sasv-restore-lab','sasv-source','sasv-api','sasv-checkpoint','aisrc'),('base','qwen-tts-lab','voice-base-source','voice-api','voice-base-checkpoint','base')]
+
+    class Api:
+        def __init__(self):
+            self.url='https://'+os.environ['KUBERNETES_SERVICE_HOST']+':'+os.environ.get('KUBERNETES_SERVICE_PORT','443')
+            self.context=ssl.create_default_context(cafile=str(ROOT/'ca.crt'))
+        def request(self,method,path,body=None):
+            headers={'Authorization':'Bearer '+(ROOT/'token').read_text().strip()}
+            if body is not None:headers['Content-Type']='application/merge-patch+json' if method=='PATCH' else 'application/json'
+            req=urllib.request.Request(self.url+path,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
+            with urllib.request.urlopen(req,context=self.context,timeout=30) as response:return json.load(response)
+        def maybe(self,path):
+            try:return self.request('GET',path)
+            except urllib.error.HTTPError as e:
+                if e.code==404:return None
+                raise
+        def put(self,collection,name,obj):
+            current=self.maybe(collection+'/'+name)
+            if current:
+                if current.get('data')==obj.get('data'):return current
+                obj['metadata']['resourceVersion']=current['metadata']['resourceVersion']
+                return self.request('PUT',collection+'/'+name,obj)
+            return self.request('POST',collection,obj)
+
+    def cm(api,name,data):
+        return api.put('/api/v1/namespaces/'+NS+'/configmaps',name,{'apiVersion':'v1','kind':'ConfigMap','metadata':{'name':name,'namespace':NS},'data':data})
+
+    def dotenv(path):
+        result={}
+        for line in pathlib.Path(path).read_text().splitlines():
+            line=line.strip()
+            if not line or line.startswith('#'):continue
+            if line.startswith('export '):line=line[7:]
+            key,sep,value=line.partition('=')
+            if not sep or not key.replace('_','a').isalnum():raise ValueError('Invalid AISRC environment file')
+            value=value.strip()
+            if len(value)>=2 and value[0]==value[-1] and value[0] in "\"'":value=value[1:-1]
+            result[key]=value
+        return result
+
+    def inject():
+        api=Api();root=pathlib.Path('/input')
+        required=['.ready','image.tar','machine-id','runtime/client.env','runtime/pretrained','runtime/DATA/license','runtime/DATA/security']
+        while not all((root/p).exists() for p in required):
+            print('WAITING_FOR_AISRC_FILES',flush=True);time.sleep(10)
+        import subprocess
+        subprocess.run(['bash','/bootstrap/stage-private.sh'],check=True)
+        for name,namespace,values in [('sasv-runtime-env','sasv-restore-lab',dotenv(root/'runtime/client.env')),('voice-gpu-api-secrets','voice-system',{'SERVICE_TOKEN':secrets.token_urlsafe(32)})]:
+            collection='/api/v1/namespaces/'+namespace+'/secrets';existing=api.maybe(collection+'/'+name)
+            if name=='voice-gpu-api-secrets' and existing:
+                assert len(base64.b64decode(existing['data']['SERVICE_TOKEN']))>=24
+                continue
+            encoded={k:base64.b64encode(v.encode()).decode() for k,v in values.items()}
+            api.put(collection,name,{'apiVersion':'v1','kind':'Secret','metadata':{'name':name,'namespace':namespace},'type':'Opaque','data':encoded})
+        pathlib.Path('/host/run/voice-private-ready').touch()
+        print('AISRC_INPUTS_READY',flush=True)
+        while True:time.sleep(30)
+
+    def wait_source(api,namespace,name,port):
+        deadline=time.monotonic()+2400
+        while time.monotonic()<deadline:
+            pod=api.maybe('/api/v1/namespaces/'+namespace+'/pods/'+name)
+            if pod and pod.get('status',{}).get('phase')=='Failed':raise RuntimeError('Model source Pod failed: '+name)
+            ip=(pod or {}).get('status',{}).get('podIP')
+            if ip:
+                try:
+                    with socket.create_connection((ip,port),timeout=2):return ip
+                except OSError:pass
+            time.sleep(3)
+        raise TimeoutError('Source did not start: '+name)
+
+    def warm_detector(ip):
+        sample=pathlib.Path('/samples/official-reference.wav').read_bytes();boundary='kpt-bootstrap-source'
+        body=b''
+        for key,value in [('uid',b'kpt-bootstrap'),('is_confidence',b'true'),('file',sample)]:
+            head='--'+boundary+'\r\nContent-Disposition: form-data; name="'+key+'"'
+            if key=='file':head+='; filename="reference.wav"\r\nContent-Type: audio/wav'
+            body+=head.encode()+b'\r\n\r\n'+value+b'\r\n'
+        body+=('--'+boundary+'--\r\n').encode()
+        req=urllib.request.Request('http://'+ip+':5433/detect/MDT_241214_lora_250501',body,{'Content-Type':'multipart/form-data; boundary='+boundary})
+        with urllib.request.urlopen(req,timeout=360) as response:result=json.load(response)
+        if result.get('kpt-bootstrap') not in ['Real','Fake']:raise ValueError('Source returned no valid classification')
+
+    def platform_ready(api):
+        for group,resource in [('gpu-cr.io/v1alpha1','gpucheckpoints'),('serving.knative.dev/v1','services')]:
+            discovery=api.maybe('/apis/'+group)
+            if not discovery or not any(r.get('name')==resource for r in discovery.get('resources',[])):return False
+        jobs=[('qwen-tts-lab','voice-model-download'),('qwen-tts-lab','voice-env-setup'),('voice-system','voice-stt-model'),(NS,'voice-installation-reference')]
+        for namespace,name in jobs:
+            job=api.maybe('/apis/batch/v1/namespaces/'+namespace+'/jobs/'+name)
+            conditions=(job or {}).get('status',{}).get('conditions',[])
+            if any(c.get('type')=='Failed' and c.get('status')=='True' for c in conditions):
+                raise RuntimeError('Platform prerequisite failed: '+namespace+'/'+name)
+            if not any(c.get('type')=='Complete' and c.get('status')=='True' for c in conditions):return False
+        for namespace,name in [(NS,'voice-private-inputs'),(NS,'gpu-cr-node-agent'),('kube-system','nvidia-device-plugin-daemonset')]:
+            obj=api.maybe('/apis/apps/v1/namespaces/'+namespace+'/daemonsets/'+name)
+            if not obj:return False
+            status=obj.get('status',{});desired=status.get('desiredNumberScheduled',0)
+            if desired<1 or status.get('observedGeneration',0)<obj['metadata']['generation'] or status.get('numberAvailable',0)<desired:return False
+        for name in ['controller','webhook']:
+            obj=api.maybe('/apis/apps/v1/namespaces/knative-serving/deployments/'+name)
+            if not obj:return False
+            status=obj.get('status',{})
+            if status.get('observedGeneration',0)<obj['metadata']['generation'] or status.get('availableReplicas',0)<obj.get('spec',{}).get('replicas',1):return False
+        return True
+
+    def wait_platform(api,timeout=10800):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            try:
+                if platform_ready(api):
+                    print('PLATFORM_PREREQUISITES_READY',flush=True);return
+            except urllib.error.HTTPError as error:
+                if error.code not in [403,404,429,500,502,503,504]:raise
+            except (urllib.error.URLError,OSError):pass
+            print('WAITING_FOR_PLATFORM_PREREQUISITES',flush=True);time.sleep(10)
+        raise TimeoutError('Platform prerequisites did not become ready')
+
+    def capture():
+        api=Api();wait_platform(api)
+        profiles={};templates=json.loads(pathlib.Path('/bootstrap/source-pods.json').read_text())
+        try:
+            for key,namespace,podname,container,checkpoint,cachekey in MODELS:
+                path='/apis/gpu-cr.io/v1alpha1/namespaces/'+namespace+'/gpucheckpoints';cr=api.maybe(path+'/'+checkpoint)
+                if not cr or cr.get('status',{}).get('phase')!='Completed':
+                    podpath='/api/v1/namespaces/'+namespace+'/pods'
+                    if not api.maybe(podpath+'/'+podname):api.request('POST',podpath,templates[key])
+                    ip=wait_source(api,namespace,podname,5433 if key=='detector' else 8000)
+                    if key=='detector':warm_detector(ip)
+                    else:
+                        with urllib.request.urlopen('http://'+ip+':8000/healthz',timeout=30) as response:
+                            assert response.status==200
+                            response.read()
+                    if not cr:api.request('POST',path,{'apiVersion':'gpu-cr.io/v1alpha1','kind':'GPUCheckpoint','metadata':{'name':checkpoint,'namespace':namespace},'spec':{'workloadRef':{'kind':'Pod','namespace':namespace,'name':podname,'container':container},'storage':{'type':'hostPath','path':'/var/lib/gcr-checkpoint'}}})
+                    deadline=time.monotonic()+1800
+                    while time.monotonic()<deadline:
+                        cr=api.request('GET',path+'/'+checkpoint);phase=cr.get('status',{}).get('phase')
+                        if phase=='Completed':break
+                        if phase in ['Failed','Error']:raise RuntimeError('Checkpoint failed: '+checkpoint)
+                        time.sleep(3)
+                    else:raise TimeoutError('Checkpoint timeout: '+checkpoint)
+                status=cr['status'];archive=pathlib.Path(status['lastCheckpointPath']);blob=archive.with_suffix('.blob')
+                for file in [archive,blob]:
+                    assert file.parent==pathlib.Path('/var/lib/gcr-checkpoint') and file.is_file(),str(file)
+                def digest(file):
+                    with file.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+                profiles[key]={'uid':status['podUID'],'record':{'model':cachekey,'archive':str(archive),'blob':str(blob),'archive_sha256':digest(archive),'blob_sha256':digest(blob)}}
+                cm(api,'voice-profile-'+key,{'profile.json':json.dumps(profiles[key])})
+                if api.maybe('/api/v1/namespaces/'+namespace+'/pods/'+podname):api.request('DELETE','/api/v1/namespaces/'+namespace+'/pods/'+podname)
+                print('MODEL_CHECKPOINT_READY '+key,flush=True)
+            cm(api,'voice-cache-records',{'checkpoints.json':json.dumps([profiles[key]['record'] for key,*_ in MODELS])})
+            print('MODEL_PROFILES_READY',flush=True)
+        finally:
+            # Keep failed sources available for logs; successful sources are removed above.
+            pass
+
+    def replace(value,old,new):
+        if isinstance(value,str):return value.replace(old,new)
+        if isinstance(value,list):return [replace(v,old,new) for v in value]
+        if isinstance(value,dict):return {k:replace(v,old,new) for k,v in value.items()}
+        return value
+
+    def contains(actual,wanted):
+        if isinstance(wanted,dict):
+            return isinstance(actual,dict) and all(k in actual and contains(actual[k],v) for k,v in wanted.items())
+        if isinstance(wanted,list):
+            return isinstance(actual,list) and len(actual)==len(wanted) and all(contains(a,b) for a,b in zip(actual,wanted))
+        return actual==wanted
+
+    def bind():
+        api=Api();ready=pathlib.Path('/run-state/services-ready')
+        while True:
+            try:
+                complete=True
+                for key,namespace,_,_,_,_ in MODELS:
+                    profile=json.loads(api.request('GET','/api/v1/namespaces/'+NS+'/configmaps/voice-profile-'+key)['data']['profile.json'])
+                    template=api.request('GET','/api/v1/namespaces/'+namespace+'/configmaps/voice-service-template')
+                    desired=json.loads(template['data']['service.json'])
+                    annotations=desired['spec']['template']['metadata']['annotations'];old=annotations['gpu-cr.io/source-pod-uid']
+                    desired=replace(desired,old,profile['uid'])
+                    desired['spec']['template']['metadata']['annotations']['gpu-cr.io/data-uri']='hostpath://'+profile['record']['blob']
+                    desired['metadata']['ownerReferences']=[{'apiVersion':'v1','kind':'ConfigMap','name':template['metadata']['name'],'uid':template['metadata']['uid']}]
+                    collection='/apis/serving.knative.dev/v1/namespaces/'+namespace+'/services'
+                    path=collection+'/'+desired['metadata']['name'];service=api.maybe(path)
+                    if not service:
+                        api.request('POST',collection,desired);complete=False
+                    elif not contains(service['spec'],desired['spec']) or not contains(service['metadata'].get('ownerReferences',[]),desired['metadata']['ownerReferences']):
+                        api.request('PATCH',path,{'spec':desired['spec'],'metadata':{'ownerReferences':desired['metadata']['ownerReferences']}});complete=False
+                    else:
+                        status=service.get('status',{});complete &= status.get('observedGeneration',0)>=service['metadata']['generation'] and status.get('latestReadyRevisionName')==status.get('latestCreatedRevisionName') and any(c['type']=='Ready' and c['status']=='True' for c in status.get('conditions',[]))
+                if complete:ready.touch()
+                else:ready.unlink(missing_ok=True)
+            except (urllib.error.URLError,KeyError,ValueError):ready.unlink(missing_ok=True)
+            time.sleep(3)
+
+    if __name__=='__main__':
+        {'inject':inject,'capture':capture,'bind':bind}[sys.argv[1]]()
+  stage-private.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    install -m 0700 /bootstrap/host-private.sh /host/run/ims-host-private.sh
+    nsenter -t 1 -m -p -r -w -- /usr/bin/bash /run/ims-host-private.sh
+  host-private.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    INPUT=/var/lib/voice-private/aisrc
+    STATE=/var/lib/voice-service/bootstrap
+    mkdir -p "$STATE" /opt/sasv-client-api/DATA /opt/sasv-client-api/cache/torch-seed /var/lib/qwen-tts-lab
+    for name in image.tar machine-id runtime/client.env runtime/pretrained runtime/DATA/license runtime/DATA/security; do
+      test -e "$INPUT/$name"
+    done
+    # Public optimization libraries arrive with the pinned node runtime release.
+    test -s /opt/voice-runtime/simd-libs-seed/pybase64/__init__.py
+    install -m 0444 "$INPUT/machine-id" /opt/sasv-client-api/machine-id
+    cp -a "$INPUT/runtime/DATA/license" "$INPUT/runtime/DATA/security" /opt/sasv-client-api/DATA/
+    cp -a "$INPUT/runtime/pretrained" /opt/sasv-client-api/
+    tar -xf /opt/voice-runtime/silero-vad-seed.tar -C /opt/sasv-client-api/cache/torch-seed
+    for folder in uploads speaker_embs enroll_tmp archive runtime-cache/numba-3a07eb16e74e; do mkdir -p "/opt/sasv-client-api/DATA/$folder"; done
+    chown -R root:10001 /opt/sasv-client-api
+    chmod -R u=rwX,g=rX,o= /opt/sasv-client-api
+    for folder in security uploads speaker_embs enroll_tmp archive runtime-cache/numba-3a07eb16e74e; do
+      chown -R 10001:10001 "/opt/sasv-client-api/DATA/$folder"
+      chmod -R u=rwX,go= "/opt/sasv-client-api/DATA/$folder"
+    done
+    current=$(sha256sum "$INPUT/image.tar" | cut -d' ' -f1)
+    if ! test -s "$STATE/aisrc-image.sha256" || ! grep -qx "$current" "$STATE/aisrc-image.sha256" || ! crictl inspecti localhost/sasv-api-secure:baseline >/dev/null 2>&1; then
+      format=$(python3 - "$INPUT/image.tar" <<'PY'
+    import sys,tarfile
+    with tarfile.open(sys.argv[1]) as archive:
+        try:archive.getmember('oci-layout');print('oci-archive')
+        except KeyError:print('docker-archive')
+    PY
+    )
+      skopeo copy "$format:$INPUT/image.tar" containers-storage:localhost/sasv-api-secure:baseline
+      printf '%s\n' "$current" > "$STATE/aisrc-image.sha256"
+    fi
+    crictl inspecti localhost/sasv-api-secure:baseline >/dev/null
+    printf 'AISRC_FILES_STAGED\n'
+  source-pods.json: |-
+    {
+      "detector": {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+          "name": "sasv-source",
+          "namespace": "sasv-restore-lab"
+        },
+        "spec": {
+          "restartPolicy": "Never",
+          "automountServiceAccountToken": false,
+          "securityContext": {
+            "fsGroup": 10001
+          },
+          "containers": [
+            {
+              "args": [
+                "cp -R /seed/. /cache/torch/; export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so:/runtime-allocator/libjemalloc.so.2; exec /app/api-server"
+              ],
+              "env": [
+                {
+                  "name": "GUARD_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "BACKEND_PORT",
+                  "value": "5433"
+                },
+                {
+                  "name": "INFERENCE_TIMEOUT",
+                  "value": "120"
+                },
+                {
+                  "name": "WARMUP_TIMEOUT",
+                  "value": "300"
+                },
+                {
+                  "name": "QUEUE_SIZE",
+                  "value": "1"
+                },
+                {
+                  "name": "QUEUE_TIMEOUT",
+                  "value": "120"
+                },
+                {
+                  "name": "MAX_BODY",
+                  "value": "2097152"
+                },
+                {
+                  "name": "TORCH_HOME",
+                  "value": "/cache/torch"
+                },
+                {
+                  "name": "PYTHONDONTWRITEBYTECODE",
+                  "value": "1"
+                },
+                {
+                  "name": "NUMBA_CACHE_DIR",
+                  "value": "/runtime-cache"
+                },
+                {
+                  "name": "NUMBA_DEBUG_CACHE",
+                  "value": "1"
+                },
+                {
+                  "name": "PYTHONPATH",
+                  "value": "/simd-libs"
+                },
+                {
+                  "name": "MALLOC_CONF",
+                  "value": "thp:always,abort_conf:true,dirty_decay_ms:-1,muzzy_decay_ms:-1"
+                },
+                {
+                  "name": "GCR_VMM_ALLOC",
+                  "value": "1"
+                },
+                {
+                  "name": "GCR_POD_UID",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.uid"
+                    }
+                  }
+                },
+                {
+                  "name": "GCR_CONTROL_DIR",
+                  "value": "/var/lib/gpu-cr/run"
+                },
+                {
+                  "name": "GCR_DATA_DIR",
+                  "value": "/var/lib/gcr-data"
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "sasv-runtime-env"
+                  }
+                }
+              ],
+              "image": "localhost/sasv-api-secure:baseline",
+              "imagePullPolicy": "Never",
+              "name": "sasv-api",
+              "ports": [
+                {
+                  "containerPort": 5433,
+                  "name": "http"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "8",
+                  "memory": "24Gi",
+                  "nvidia.com/gpu": "1"
+                },
+                "requests": {
+                  "cpu": "4",
+                  "memory": "16Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsGroup": 10001,
+                "runAsNonRoot": true,
+                "runAsUser": 10001,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/base64.py",
+                  "name": "base64-test",
+                  "readOnly": true,
+                  "subPath": "base64.py"
+                },
+                {
+                  "mountPath": "/simd-libs",
+                  "name": "simd-libs",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/runtime-allocator",
+                  "name": "allocator-input",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/seed",
+                  "name": "torch-seed",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/site-packages/torch/hub.py",
+                  "name": "offline-vad",
+                  "readOnly": true,
+                  "subPath": "hub.py"
+                },
+                {
+                  "mountPath": "/runtime-cache",
+                  "name": "data",
+                  "subPath": "runtime-cache/numba-3a07eb16e74e"
+                },
+                {
+                  "mountPath": "/cache/torch",
+                  "name": "torch-cache"
+                },
+                {
+                  "mountPath": "/etc/machine-id",
+                  "name": "machine-id",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/pretrained",
+                  "name": "pretrained",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/opt/license",
+                  "name": "data",
+                  "subPath": "license"
+                },
+                {
+                  "mountPath": "/app/security",
+                  "name": "data",
+                  "subPath": "security"
+                },
+                {
+                  "mountPath": "/app/uploads",
+                  "name": "data",
+                  "subPath": "uploads"
+                },
+                {
+                  "mountPath": "/app/speaker_embs",
+                  "name": "data",
+                  "subPath": "speaker_embs"
+                },
+                {
+                  "mountPath": "/app/enroll_tmp",
+                  "name": "data",
+                  "subPath": "enroll_tmp"
+                },
+                {
+                  "mountPath": "/app/archive",
+                  "name": "data",
+                  "subPath": "archive"
+                },
+                {
+                  "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/site-packages/torch/serialization.py",
+                  "name": "checkpoint-mmap",
+                  "readOnly": true,
+                  "subPath": "serialization.py"
+                },
+                {
+                  "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/json/__init__.py",
+                  "name": "json-parser-input",
+                  "readOnly": true,
+                  "subPath": "json-init.py"
+                },
+                {
+                  "name": "checkpoint-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "gcr-lib",
+                  "mountPath": "/opt/gpu-cr",
+                  "readOnly": true
+                },
+                {
+                  "name": "gcr-run",
+                  "mountPath": "/var/lib/gpu-cr/run"
+                },
+                {
+                  "name": "gcr-data",
+                  "mountPath": "/var/lib/gcr-data"
+                }
+              ],
+              "workingDir": "/app",
+              "command": [
+                "sh",
+                "-ec"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "base64-test",
+              "emptyDir": {}
+            },
+            {
+              "name": "simd-libs",
+              "emptyDir": {}
+            },
+            {
+              "name": "offline-vad",
+              "emptyDir": {}
+            },
+            {
+              "hostPath": {
+                "path": "/opt/sasv-client-api/cache/torch-seed",
+                "type": "Directory"
+              },
+              "name": "torch-seed"
+            },
+            {
+              "emptyDir": {
+                "sizeLimit": "256Mi"
+              },
+              "name": "torch-cache"
+            },
+            {
+              "hostPath": {
+                "path": "/opt/sasv-client-api/machine-id",
+                "type": "File"
+              },
+              "name": "machine-id"
+            },
+            {
+              "hostPath": {
+                "path": "/opt/sasv-client-api/pretrained",
+                "type": "Directory"
+              },
+              "name": "pretrained"
+            },
+            {
+              "name": "data",
+              "hostPath": {
+                "path": "/opt/sasv-client-api/DATA",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "allocator-input",
+              "emptyDir": {}
+            },
+            {
+              "name": "checkpoint-mmap",
+              "emptyDir": {}
+            },
+            {
+              "name": "json-parser-input",
+              "emptyDir": {}
+            },
+            {
+              "name": "checkpoint-tmp",
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "6Gi"
+              }
+            },
+            {
+              "name": "gcr-lib",
+              "hostPath": {
+                "path": "/var/lib/gpu-cr/lib",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "gcr-run",
+              "hostPath": {
+                "path": "/var/lib/gpu-cr/run",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "gcr-data",
+              "hostPath": {
+                "path": "/var/lib/gcr-data",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "base64-test-seed",
+              "configMap": {
+                "name": "sasv-simd-80dd96a82381"
+              }
+            },
+            {
+              "name": "simd-libs-seed",
+              "hostPath": {
+                "path": "/opt/voice-runtime/simd-libs-seed",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "offline-vad-seed",
+              "configMap": {
+                "name": "sasv-offline-vad-cc5d755ea5e9"
+              }
+            },
+            {
+              "name": "allocator-input-seed",
+              "hostPath": {
+                "path": "/opt/voice-runtime/allocator-input-seed",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "checkpoint-mmap-seed",
+              "configMap": {
+                "name": "sasv-mmap-65b7c6886c00"
+              }
+            },
+            {
+              "name": "json-parser-input-seed",
+              "hostPath": {
+                "path": "/opt/voice-runtime/json-parser-input-seed",
+                "type": "Directory"
+              }
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "prepare-gcr-dirs",
+              "image": "docker.io/library/ubuntu@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",
+              "command": [
+                "sh",
+                "-ec",
+                "cp -RL /config-seed/base64-test/. /config-live/base64-test/; cp -RL /config-seed/simd-libs/. /config-live/simd-libs/; cp -RL /config-seed/offline-vad/. /config-live/offline-vad/; cp -RL /config-seed/allocator-input/. /config-live/allocator-input/; cp -RL /config-seed/checkpoint-mmap/. /config-live/checkpoint-mmap/; cp -RL /config-seed/json-parser-input/. /config-live/json-parser-input/; mkdir -p /run-root/$POD_UID /data-root/$POD_UID /app-tmp/gpu-lock; touch /run-root/$POD_UID/control; chown 10001:10001 /run-root/$POD_UID /run-root/$POD_UID/control /data-root/$POD_UID; chmod 600 /run-root/$POD_UID/control"
+              ],
+              "env": [
+                {
+                  "name": "POD_UID",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.uid"
+                    }
+                  }
+                },
+                {
+                  "name": "NVIDIA_VISIBLE_DEVICES",
+                  "value": "void"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "gcr-run",
+                  "mountPath": "/run-root"
+                },
+                {
+                  "name": "gcr-data",
+                  "mountPath": "/data-root"
+                },
+                {
+                  "name": "checkpoint-tmp",
+                  "mountPath": "/app-tmp"
+                },
+                {
+                  "name": "base64-test-seed",
+                  "mountPath": "/config-seed/base64-test",
+                  "readOnly": true
+                },
+                {
+                  "name": "base64-test",
+                  "mountPath": "/config-live/base64-test"
+                },
+                {
+                  "name": "simd-libs-seed",
+                  "mountPath": "/config-seed/simd-libs",
+                  "readOnly": true
+                },
+                {
+                  "name": "simd-libs",
+                  "mountPath": "/config-live/simd-libs"
+                },
+                {
+                  "name": "offline-vad-seed",
+                  "mountPath": "/config-seed/offline-vad",
+                  "readOnly": true
+                },
+                {
+                  "name": "offline-vad",
+                  "mountPath": "/config-live/offline-vad"
+                },
+                {
+                  "name": "allocator-input-seed",
+                  "mountPath": "/config-seed/allocator-input",
+                  "readOnly": true
+                },
+                {
+                  "name": "allocator-input",
+                  "mountPath": "/config-live/allocator-input"
+                },
+                {
+                  "name": "checkpoint-mmap-seed",
+                  "mountPath": "/config-seed/checkpoint-mmap",
+                  "readOnly": true
+                },
+                {
+                  "name": "checkpoint-mmap",
+                  "mountPath": "/config-live/checkpoint-mmap"
+                },
+                {
+                  "name": "json-parser-input-seed",
+                  "mountPath": "/config-seed/json-parser-input",
+                  "readOnly": true
+                },
+                {
+                  "name": "json-parser-input",
+                  "mountPath": "/config-live/json-parser-input"
+                }
+              ]
+            }
+          ],
+          "tolerations": [
+            {
+              "key": "node-role.kubernetes.io/control-plane",
+              "operator": "Exists",
+              "effect": "NoSchedule"
+            }
+          ]
+        }
+      },
+      "base": {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+          "name": "voice-base-source",
+          "namespace": "qwen-tts-lab"
+        },
+        "spec": {
+          "restartPolicy": "Never",
+          "automountServiceAccountToken": false,
+          "containers": [
+            {
+              "name": "voice-api",
+              "image": "docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "bash",
+                "-ec",
+                "export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so; exec /data/voice-env/bin/python /fast-model/fast_clone_server.py"
+              ],
+              "env": [
+                {
+                  "name": "HF_HOME",
+                  "value": "/data/huggingface"
+                },
+                {
+                  "name": "HF_HUB_OFFLINE",
+                  "value": "1"
+                },
+                {
+                  "name": "OMP_NUM_THREADS",
+                  "value": "1"
+                },
+                {
+                  "name": "MKL_NUM_THREADS",
+                  "value": "1"
+                },
+                {
+                  "name": "GCR_VMM_ALLOC",
+                  "value": "1"
+                },
+                {
+                  "name": "GCR_CONTROL_DIR",
+                  "value": "/var/lib/gpu-cr/run"
+                },
+                {
+                  "name": "GCR_DATA_DIR",
+                  "value": "/var/lib/gcr-data"
+                },
+                {
+                  "name": "GCR_POD_UID",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.uid"
+                    }
+                  }
+                },
+                {
+                  "name": "VOICE_SIZE",
+                  "value": "1.7B"
+                },
+                {
+                  "name": "VOICE_CPU_THREADS",
+                  "value": "1"
+                },
+                {
+                  "name": "VOICE_SOURCE_WARMUP",
+                  "value": "1"
+                },
+                {
+                  "name": "VOICE_CODEC_GRAPH",
+                  "value": "1"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "lib",
+                  "mountPath": "/opt/gpu-cr"
+                },
+                {
+                  "name": "run",
+                  "mountPath": "/var/lib/gpu-cr/run"
+                },
+                {
+                  "name": "blob",
+                  "mountPath": "/var/lib/gcr-data"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "shm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "fast-model-code",
+                  "mountPath": "/fast-model",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "4",
+                  "memory": "8Gi",
+                  "nvidia.com/gpu": "1"
+                },
+                "limits": {
+                  "cpu": "12",
+                  "memory": "40Gi",
+                  "nvidia.com/gpu": "1"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 8000
+                }
+              ]
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "wait-reference",
+              "image": "docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
+              "command": [
+                "python",
+                "-c",
+                "import pathlib,time; root=pathlib.Path('/data'); deadline=time.monotonic()+7200\nwhile not ((root/'official-reference.wav').is_file() and (root/'.voice-env-ready').is_file()):\n assert time.monotonic()<deadline;time.sleep(2)"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data",
+                  "readOnly": true
+                }
+              ]
+            },
+            {
+              "name": "prepare",
+              "image": "docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee",
+              "command": [
+                "bash",
+                "-ec",
+                "mkdir -p /var/lib/gpu-cr/run/$UID_VALUE /var/lib/gcr-data/$UID_VALUE /tmp/gpu-lock; printf 0 > /var/lib/gpu-cr/run/$UID_VALUE/control"
+              ],
+              "env": [
+                {
+                  "name": "UID_VALUE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.uid"
+                    }
+                  }
+                },
+                {
+                  "name": "NVIDIA_VISIBLE_DEVICES",
+                  "value": "void"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "lib",
+                  "mountPath": "/opt/gpu-cr"
+                },
+                {
+                  "name": "run",
+                  "mountPath": "/var/lib/gpu-cr/run"
+                },
+                {
+                  "name": "blob",
+                  "mountPath": "/var/lib/gcr-data"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "shm",
+                  "mountPath": "/dev/shm"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "hostPath": {
+                "path": "/var/lib/qwen-tts-lab",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "lib",
+              "hostPath": {
+                "path": "/var/lib/gpu-cr/lib",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "run",
+              "hostPath": {
+                "path": "/var/lib/gpu-cr/run",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "blob",
+              "hostPath": {
+                "path": "/var/lib/gcr-data",
+                "type": "Directory"
+              }
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "shm",
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "2Gi"
+              }
+            },
+            {
+              "name": "fast-model-code",
+              "configMap": {
+                "name": "voice-fast-model"
+              }
+            }
+          ],
+          "tolerations": [
+            {
+              "key": "node-role.kubernetes.io/control-plane",
+              "operator": "Exists",
+              "effect": "NoSchedule"
+            }
+          ]
+        }
+      }
+    }

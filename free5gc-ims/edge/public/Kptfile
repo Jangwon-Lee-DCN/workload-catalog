@@ -1,0 +1,6 @@
+apiVersion: kpt.dev/v1
+kind: Kptfile
+metadata:
+  name: ims-public-access
+info:
+  description: AWS CCM public NLB, Kubernetes Ingress and automatically renewed ACME TLS.

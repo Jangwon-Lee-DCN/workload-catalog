@@ -1,0 +1,10 @@
+apiVersion: infra.nephio.org/v1alpha1
+kind: WorkloadCluster
+metadata:
+  name: '@{gpu-cluster-name}'
+  namespace: default
+spec:
+  clusterName: '@{gpu-cluster-name}'
+  cnis:
+  - ipvlan
+  masterInterface: ens5

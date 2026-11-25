@@ -1,0 +1,6 @@
+apiVersion: kpt.dev/v1
+kind: Kptfile
+metadata:
+  name: ims-phone-access
+info:
+  description: HTTPS resources configured and deployed by the parent Edge package.

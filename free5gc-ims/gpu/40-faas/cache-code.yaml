@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-cache-code
+  namespace: gpu-cr-system
+data:
+  cache_prepare.py: |
+    """Prepare fresh checkpoint inputs from a local manifest after each node boot.
+
+    The source archives and GPU blobs stay on EBS. Only verified copies are placed
+    in tmpfs. The manifest is written when each model checkpoint is created.
+    """
+    import hashlib
+    import json
+    import os
+    import subprocess
+    import tarfile
+    from pathlib import Path
+
+    MANIFEST = Path('/etc/voice-cache/checkpoints.json')
+    MOUNTS = {
+        '/var/lib/gpu-cr/cache': '40G',
+        '/var/lib/gpu-cr/pinned-gpu': '44G',
+        '/var/lib/voice-service/resident': '80G',
+    }
+
+
+    def digest(path):
+        with open(path, 'rb') as stream:
+            return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+    def main():
+        records = json.loads(MANIFEST.read_text())
+        assert len(records) == 2, 'AISRC and Base checkpoint records required'
+        assert {r['model'] for r in records} == {'aisrc', 'base'}
+        for name, size in MOUNTS.items():
+            path = Path(name)
+            path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not os.path.ismount(path):
+                subprocess.run(['mount', '-t', 'tmpfs', '-o', f'size={size},mode=0700',
+                                'tmpfs', name], check=True)
+            assert subprocess.check_output(['findmnt', '-n', '-o', 'FSTYPE', name],
+                                           text=True).strip() == 'tmpfs'
+        for record in records:
+            model = record['model']
+            archive = Path(record['archive'])
+            blob = Path(record['blob'])
+            assert digest(archive) == record['archive_sha256'], model + ' archive differs'
+            assert digest(blob) == record['blob_sha256'], model + ' blob differs'
+            stem = 'sasv' if model == 'aisrc' else 'voice-app-' + model
+            compact = Path('/var/lib/gpu-cr/cache') / (stem + '.tar')
+            unpacked = Path(str(compact) + '.unpacked')
+            unpacked.mkdir(mode=0o700)
+            with tarfile.open(archive) as tar:
+                for member in tar.getmembers():
+                    relative = Path(member.name)
+                    assert not relative.is_absolute() and '..' not in relative.parts
+                    assert not member.issym() and not member.islnk()
+                tar.extractall(unpacked, filter='data')
+            with tarfile.open(compact, 'w') as tar:
+                for name in ('config.dump', 'spec.dump'):
+                    assert (unpacked / name).is_file(), model + ' lacks ' + name
+                    tar.add(unpacked / name, arcname=name, recursive=False)
+            compact.chmod(0o444)
+            assert compact.stat().st_size < 1024 * 1024
+            stat = compact.stat()
+            (unpacked / '.archive-stat.json').write_text(json.dumps({
+                'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns}))
+            target = (Path('/var/lib/gpu-cr/pinned-gpu/aisrc/data.blob') if model == 'aisrc'
+                      else Path('/var/lib/voice-service/resident') / (model + '-gpu/data.blob'))
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with open(blob, 'rb') as source, open(target, 'wb') as dest:
+                while chunk := source.read(16 * 1024 * 1024):
+                    dest.write(chunk)
+            assert digest(target) == record['blob_sha256']
+            print('CACHE_READY', model, flush=True)
+        Path('/run/voice-cache-ready').touch()
+
+
+    if __name__ == '__main__':
+        main()

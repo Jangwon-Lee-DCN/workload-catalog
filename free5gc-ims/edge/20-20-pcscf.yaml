@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ims-pcscf
+  namespace: ims-lab
+  labels:
+    app: ims-pcscf
+    app.kubernetes.io/part-of: ims-lab
+  annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"name": "ims-pcscf-n6", "interface": "n6"}]'
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: '@{edge-node-name}'
+  hostAliases:
+    - ip: '@{core-worker-ip}'
+      hostnames:
+        - '@{ims-domain}'
+        - icscf.@{ims-domain}
+        - scscf.@{ims-domain}
+        - hss.@{ims-domain}
+    - ip: '@{pcscf-ip}'
+      hostnames:
+        - pcscf.@{ims-domain}
+  containers:
+    - name: ims-pcscf
+      image: '@{image-kamailio}'
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - /init/start.sh
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: '2'
+          memory: 2Gi
+      volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: init
+          mountPath: /init
+      env:
+        - name: MYSQL_PWD
+          valueFrom:
+            secretKeyRef:
+              name: ims-db-auth
+              key: root-password
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+      readinessProbe:
+        exec:
+          command:
+            - bash
+            - -ec
+            - exec 3<>/dev/tcp/@{pcscf-ip}/5060
+        periodSeconds: 3
+        timeoutSeconds: 2
+        failureThreshold: 3
+  dnsPolicy: None
+  dnsConfig:
+    nameservers:
+      - '@{core-worker-ip}'
+    options:
+      - name: ndots
+        value: '1'
+  volumes:
+    - name: config
+      secret:
+        secretName: ims-pcscf-config
+    - name: init
+      secret:
+        secretName: ims-pcscf-init

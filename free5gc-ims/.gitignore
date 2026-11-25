@@ -1,0 +1,7 @@
+private/
+site.local.yaml
+rendered/
+artifacts/
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,11 @@
+# Local validation evidence is not part of the deployment branch.
+/validation/
+
+# Installer-local copies and cluster credentials.
+/*.kubeconfig
+/gpu-runtime/
+/gpu-cluster/
+/gpu-bindings/
+/aisrc/
+/aisrc-input/
+/private/

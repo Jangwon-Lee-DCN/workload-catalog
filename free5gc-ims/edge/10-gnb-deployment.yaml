@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: gnb
+    app.kubernetes.io/instance: edge
+  name: gnb
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: gnb
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: free5gc-gnb-n2, free5gc-gnb-n3
+      labels:
+        app: gnb
+    spec:
+      containers:
+        - command:
+            - /ueransim/nr-gnb
+            - -c
+            - /ueransim/config/gnb.yaml
+          image: docker.io/free5gc/ueransim@sha256:af9bf08769d0a51cd4c108fa2bedb739fce2cfaa8c3396a2db4d869d9939a7f3
+          imagePullPolicy: IfNotPresent
+          name: gnb
+          resources: {}
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /ueransim/config/
+              name: gnb-config
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'name=$(/ueransim/nr-cli -d | head -n 1); test -n "$name"; /ueransim/nr-cli "$name" -e status | grep -q "is-ngap-up: true"'
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'name=$(/ueransim/nr-cli -d | head -n 1); test -n "$name"; /ueransim/nr-cli "$name" -e status | grep -q "is-ngap-up: true"'
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'name=$(/ueransim/nr-cli -d | head -n 1); test -n "$name"; /ueransim/nr-cli "$name" -e status | grep -q "is-ngap-up: true"'
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      dnsPolicy: ClusterFirst
+      nodeName: '@{edge-node-name}'
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: gnb-config
+          name: gnb-config
+        - name: bootstrap-code
+          configMap:
+            name: ims-bootstrap-code
+        - name: core-readiness
+          secret:
+            secretName: ims-observer-core
+      initContainers:
+        - name: wait-core-dependencies
+          image: '@{image-tools}'
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /bootstrap/wait_dependencies.py
+            - gnb
+          env:
+            - name: CORE_API
+              valueFrom:
+                secretKeyRef:
+                  name: ims-observer-core
+                  key: server
+            - name: AMF_IP
+              value: '@{amf-n2-ip}'
+            - name: PCSCF_IP
+              value: '@{pcscf-ip}'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: bootstrap-code
+              mountPath: /bootstrap
+              readOnly: true
+            - name: core-readiness
+              mountPath: /core
+              readOnly: true

@@ -1,0 +1,16 @@
+apiVersion: addons.cluster.x-k8s.io/v1beta1
+kind: ClusterResourceSet
+metadata:
+  name: '@{core-cluster-name}-cluster-crs-ccm-reconcile'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{core-cluster-name}'
+spec:
+  clusterSelector:
+    matchLabels:
+      ccm: external
+      nephio.org/cluster-name: '@{core-cluster-name}'
+  resources:
+    - kind: ConfigMap
+      name: '@{core-cluster-name}-cluster-cloud-controller-manager-addon'
+  strategy: Reconcile

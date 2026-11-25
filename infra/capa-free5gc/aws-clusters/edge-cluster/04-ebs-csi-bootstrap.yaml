@@ -1,0 +1,16 @@
+apiVersion: addons.cluster.x-k8s.io/v1beta1
+kind: ClusterResourceSet
+metadata:
+  name: '@{edge-cluster-name}-cluster-crs-csi-reconcile'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+spec:
+  clusterSelector:
+    matchLabels:
+      csi: external
+      nephio.org/cluster-name: '@{edge-cluster-name}'
+  resources:
+    - kind: ConfigMap
+      name: '@{edge-cluster-name}-cluster-aws-ebs-csi-driver-addon'
+  strategy: Reconcile

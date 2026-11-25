@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ims-ue-1-user
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-11'
+stringData:
+  user.json: '{"name": "ue-1", "imsi": "001010000000901", "ueId": "imsi-001010000000901", "key": "@{ue-1-key}", "opc": "@{ue-1-opc}", "amf": "8000", "msisdn": "1001", "dashboard": true, "domain": "@{ims-domain}", "pcscf": "@{pcscf-ip}", "tone": 440}'

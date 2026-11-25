@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ims-generation-provider
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-11'
+type: Opaque
+stringData:
+  api-key: REPLACE_WITH_OPTIONAL_ELEVENLABS_KEY

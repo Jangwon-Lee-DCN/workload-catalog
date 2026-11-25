@@ -1,0 +1,27 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSMachineTemplate
+metadata:
+  name: '@{core-cluster-name}-md-0-@{template-revision}'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{core-cluster-name}'
+spec:
+  template:
+    spec:
+      ami:
+        id: '@{node-ami}'
+      additionalSecurityGroups:
+        - id: '@{eni-retention-security-group-id}'
+      iamInstanceProfile: '@{worker-iam-profile}'
+      instanceType: '@{worker-instance-type}'
+      sshKeyName: '@{ssh-key-name}'
+      rootVolume:
+        size: 100
+      subnet:
+        id: '@{private-subnet-id}'
+    metadata:
+      annotations:
+        eni.dcn.ssu.ac.kr/allocate-from-pool: 'true'
+        eni.dcn.ssu.ac.kr/interface-key: core_primary_eni
+        eni.dcn.ssu.ac.kr/additional-interface-keys: core_n2_eni,core_n4_eni
+        eni.dcn.ssu.ac.kr/attach-additional-interfaces: 'true'

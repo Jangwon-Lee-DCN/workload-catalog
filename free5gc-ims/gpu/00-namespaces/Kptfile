@@ -1,0 +1,8 @@
+apiVersion: kpt.dev/v1
+kind: Kptfile
+metadata:
+  name: gpu-00-namespaces
+  annotations:
+    config.kubernetes.io/local-config: 'true'
+info:
+  description: Single-node GPU telephone demo stage 00-namespaces

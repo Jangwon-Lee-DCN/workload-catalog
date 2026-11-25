@@ -1,0 +1,186 @@
+{
+  "catalog_base": "57bf84c0d186068e94707ea78a5b3a3f88252e27",
+  "captured_at": "2026-11-22",
+  "ims_projects": {
+    "docker_open5gs": {
+      "url": "https://github.com/herlesupreeth/docker_open5gs",
+      "revision": "39029beeaca390cc05737593d143f09d1729cf2d",
+      "purpose": "Kamailio IMS and PyHSS deployment inputs; not the Open5GS 5GC"
+    },
+    "kamailio": {
+      "url": "https://github.com/kamailio/kamailio",
+      "revision": "9874599e41fa69cc3807676a7995a135a350a9ba"
+    },
+    "pyhss": {
+      "url": "https://github.com/nickvsnetworking/pyhss",
+      "revision": "71a91f6d9e6b910a74750e266edb7642ca8f9971"
+    }
+  },
+  "gpu_runtime_included": false,
+  "live_deployment_performed": true,
+  "krm_function": "ghcr.io/kptdev/krm-functions-catalog/starlark@sha256:c347e28606fa1a608e8e02e03541a5a46e4a0152005df4a11e44f6c4ab1edd9a",
+  "observed_image_ids": {
+    "core": {
+      "docker.io/free5gc/amf:v3.4.3": "docker.io/free5gc/amf@sha256:1bc96ff5a2a642f8035c1354566cfaf5f7e644723d545ad9c64df22efaa6376c",
+      "docker.io/free5gc/ausf:v3.4.3": "docker.io/free5gc/ausf@sha256:687ff4daf5da7f4a364a8ec26089811628f27a3a173f0344a16c69aaaa257821",
+      "docker.io/library/mongo:4.4": "docker.io/library/mongo@sha256:4be76f674fc4b27859816811b8baa3c51830eb1dbf4ca81a51e26b79edd662ef",
+      "docker.io/free5gc/nrf:v3.4.3": "docker.io/free5gc/nrf@sha256:99e46b860efb4d1d50dbc8d73aa872a03bbfe94a54e126a8cd69d369104c009d",
+      "docker.io/free5gc/nssf:v3.4.3": "docker.io/free5gc/nssf@sha256:dfe8c68c04b45cbb79deb2c65296d701b452a5301ff156c50f83078fcbf507c8",
+      "docker.io/free5gc/pcf:v3.4.3": "docker.io/free5gc/pcf@sha256:f712e8ecd927928698e180abd04a6777edd5bd968900dc431f5644f58ade0332",
+      "docker.io/free5gc/smf:v3.4.3": "docker.io/free5gc/smf@sha256:60e38baa4b10d6816cf9fc20ff73199cd96714f8afa98beb508dd3d71f1b4f52",
+      "docker.io/free5gc/udm:v3.4.3": "docker.io/free5gc/udm@sha256:2f68df062a50ebbc168b6fde19881999f12d035e15e6a2cb08bef0152157a40f",
+      "docker.io/free5gc/udr:v3.4.3": "docker.io/free5gc/udr@sha256:c0783bcdcbdc8af4c69050e6ea9b1004d0fbaef79031fd8c015a4fb4bed9d6a1",
+      "docker.io/free5gc/webui:v3.4.3": "docker.io/free5gc/webui@sha256:9adeb18492cbd3240133293df10ecaf2d99901fa5efe6f69b26ce12cc8e8b18b",
+      "registry.k8s.io/coredns/coredns:v1.11.3": "registry.k8s.io/coredns/coredns@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e",
+      "docker.io/ims-lab/kamailio:39029bee": "sha256:6b034a07eccb0851a3d2f1eb6f24fcdefefcd7353c055ac98017b358f613b1f6",
+      "docker.io/library/mysql:8.0.40": "docker.io/library/mysql@sha256:d58ac93387f644e4e040c636b8f50494e78e5afc27ca0a87348b2f577da2b7ff",
+      "docker.io/ims-lab/pyhss:1.0.2": "sha256:980ff3c5e72dfa2df416f66bf50396ab18a31ad3f85aade1ae9840f86d90dd72"
+    },
+    "edge": {
+      "docker.io/free5gc/ueransim:v3.4.3": "docker.io/free5gc/ueransim@sha256:af9bf08769d0a51cd4c108fa2bedb739fce2cfaa8c3396a2db4d869d9939a7f3",
+      "docker.io/free5gc/upf:v3.4.3": "docker.io/free5gc/upf@sha256:b6b362a39fdd0c768cb15744366004f48c7d6a6f804d54e2e24a4e541b8d37c6",
+      "docker.io/ims-lab/tools:2": "sha256:dac4471a3b3bb5d53483087913bf85f7a1bba1d84fedec7a39edacac365012ed",
+      "docker.io/ims-lab/kamailio:39029bee": "sha256:6b034a07eccb0851a3d2f1eb6f24fcdefefcd7353c055ac98017b358f613b1f6",
+      "docker.io/ims-lab/tools:1": "sha256:bdf80e7bc01320fe6a795dc7565e2ce257ead1d592d6851cbfc9c76c77b5850b"
+    }
+  },
+  "gtp5g": {
+    "url": "https://github.com/free5gc/gtp5g",
+    "revision": "d8818ee80a9a004ea0fac3715415395810666921",
+    "module_version": "0.8.6",
+    "observed_kernel": "6.8.0-1028-aws",
+    "local_patch": false
+  },
+  "observed_environment": {
+    "core": [
+      {
+        "kubeletVersion": "v1.32.0",
+        "containerRuntimeVersion": "containerd://1.7.20",
+        "kernelVersion": "6.8.0-1028-aws",
+        "osImage": "Ubuntu 22.04.5 LTS"
+      },
+      {
+        "kubeletVersion": "v1.32.0",
+        "containerRuntimeVersion": "containerd://2.1.4",
+        "kernelVersion": "6.8.0-1028-aws",
+        "osImage": "Ubuntu 22.04.5 LTS"
+      }
+    ],
+    "edge": [
+      {
+        "kubeletVersion": "v1.32.0",
+        "containerRuntimeVersion": "containerd://1.7.20",
+        "kernelVersion": "6.8.0-1028-aws",
+        "osImage": "Ubuntu 22.04.5 LTS"
+      },
+      {
+        "kubeletVersion": "v1.32.0",
+        "containerRuntimeVersion": "containerd://2.1.4",
+        "kernelVersion": "6.8.0-1028-aws",
+        "osImage": "Ubuntu 22.04.5 LTS"
+      }
+    ]
+  },
+  "gpu_resources": {
+    "path": "gpu/",
+    "lock": "gpu/source-lock.json",
+    "private_runtime_implementation_included": false
+  },
+  "deployment_scope": {
+    "namespace": "free5gc-eni-demo",
+    "clusters": [
+      "demo-cpu-a",
+      "demo-cpu-b"
+    ],
+    "existing_gpu": "3.38.15.83:8090",
+    "production_openstack_changed": false
+  },
+  "baseline_live_revision": "debb98a3d5352e447351af60603796115889e2e1",
+  "delivery": "Nephio mgmt-staging bootstrap and per-cluster ArgoCD; Secrets outside Git",
+  "native_gitops_acceptance": {
+    "source_revision": "c58764c714b696303823eda12679267744cb97fb",
+    "applied_at": "2026-11-23T08:53:31Z",
+    "accepted_at": "2026-11-23T09:12:55Z",
+    "manual_repairs": 0,
+    "source_files_unchanged": 176,
+    "gitops_revisions": {
+      "demo-cpu-a": "1f1737f2144417c60ddbfed2b225a91667fc6fe8",
+      "demo-cpu-b": "41a9e741968df2b1165c9c0aefb500ce9f1e891e"
+    }
+  },
+  "deployment_payload_sha256": {
+    "edge/50-runtime-code.yaml": "ff10d58aef6f32f3fad27971c5b29152a98ecaad87da2b9f003d8587fb734d5b",
+    "edge/20-bootstrap-access.yaml": "030ba2e3106fdc33be606e7dbf5009054d8b20b696987c6a1aeae4c2ca37b41f"
+  },
+  "certificate_manager": {
+    "version": "v1.20.5",
+    "source": "https://github.com/cert-manager/cert-manager/releases/download/v1.20.5/cert-manager.yaml",
+    "upstream_sha256": "f015cc08b45072695fd63ea4e0382953cd87f95fc4a837c7c8a9810c0bd7366e",
+    "packaged_sha256": "d5c854727f728d70149147cde96f678af5f7be90ea241328a72688d757f6ed39",
+    "modifications": [
+      "Immutable image digests",
+      "ArgoCD sync waves: CRDs/namespace -50, RBAC/services/webhooks -40, controllers -30"
+    ],
+    "images": {
+      "quay.io/jetstack/cert-manager-cainjector:v1.20.5": "quay.io/jetstack/cert-manager-cainjector@sha256:d08d2695ad3714ba42a04c07f3a15fef6e1accd02716a5ac66ba1fa8f99afca6",
+      "quay.io/jetstack/cert-manager-controller:v1.20.5": "quay.io/jetstack/cert-manager-controller@sha256:62df7490e10bc668edc34d4083a5439b4b684073eb78ddadf58cf35e655d8298",
+      "quay.io/jetstack/cert-manager-webhook:v1.20.5": "quay.io/jetstack/cert-manager-webhook@sha256:85367b4b5a6662e5a05c0f2465815e2dd9e4eb1957a2123be2b20f9de5135252"
+    },
+    "default_issuer": "SelfSigned, internal demo trust",
+    "live_deployment_performed": false
+  },
+  "shared_runtime_image": {
+    "anonymous_pull_verified": true,
+    "image": "docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25",
+    "manifest_digest": "sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25",
+    "config_digest": "sha256:1e115264264415e991afa8b6902ac18b39bf5bd30833ff799ba585bc46c76889",
+    "architecture": "amd64",
+    "tag": "docker.io/jangwonlee/ims-demo-runtime:content-73f64e0aa6aa",
+    "rebuilt": false,
+    "tested_source_image": "ims-lab/tools:kpt-v1",
+    "installer_build_required": false,
+    "installer_image_import_required": false,
+    "management_pull_verified": true
+  },
+  "deployment_packages": {
+    "edge_bundle": "edge includes cert-manager and HTTPS; no separate access package",
+    "core_edge_bindings": "infra/capa-free5gc/cluster-bindings, applied in management; discovers Core API and delivers read-only identity from CAPA kubeconfigs"
+  },
+  "public_ingress": {
+    "controller": "docker.io/library/traefik@sha256:a6c0194dda77bcb804824580f36fa7edc56e315b1acfe933366c8b52844a78a4",
+    "gateway": "docker.io/library/nginx@sha256:552e7481ca93ffccd046aa658dbbed22caefbc09c66fa7cd247cbb90b8a5c609",
+    "load_balancer": "AWS CCM Service type LoadBalancer, NLB, supplied public subnet and EIP",
+    "tls": "cert-manager HTTP-01 -> Lets Encrypt; IngressClass ims-public",
+    "source_address": "externalTrafficPolicy Local -> Traefik X-Forwarded-For -> NGINX access rules",
+    "acceptance": "isolated trusted HTTPS browser route probe passed; rebuilt full demo acceptance pending"
+  },
+  "current_operational_acceptance": {
+    "repository": "openstack-production-datacenter",
+    "revision": "c2962ffe96e00e821b240ab45526f8d76c4b369b",
+    "path": "docs/operations/change-contracts/free5gc-fixed-eni-packaging.yaml",
+    "section": "gpu_packaging.full_demo_rebuild",
+    "state": "accepted",
+    "tested_catalog_configuration_revision": "c5fe4d4f81cfe4bfd9f543a758e1886ca40c1ba8",
+    "publication": "local-only; no new GitHub push authorized"
+  },
+  "porch_deployment_candidate": {
+    "date": "2026-11-24",
+    "baseline_catalog_revision": "7f67dd81495e77637fb6630162aa16309a26ac59",
+    "status": "clean-rebuild-in-progress",
+    "entrypoints": {
+      "catalog": "infra/capa-free5gc/workload-repository",
+      "core": "free5gc-ims/core",
+      "edge": "free5gc-ims/edge",
+      "gpu": "infra/capa-free5gc/gpu-services",
+      "private_inputs": "infra/capa-free5gc/gpu-services/inject-aisrc.sh"
+    },
+    "core_edge": "Porch clone/edit/render/publish with Secrets retained; cluster ArgoCD excludes local configuration and render-state files.",
+    "gpu": "Five initial-policy PackageVariants publish to mgmt-staging; Nephio delivers to the GPU cluster. Capture waits for discovery APIs, completed input Jobs and current-generation platform readiness.",
+    "validation": "Fresh attempt-02 passed real public HTTPS, both telephone directions, microphone/file GPU cloning, RTP/MEC/GPU/SIP results, actual zero-one-two-zero scaling, browser errors zero and SIP MESSAGE errors zero. Detector first response 10.964 seconds; Base 1.7B WAV generation 10.822 seconds with STT content check passed. Twelve local regression tests passed.",
+    "scope": "Attempt-02 final audit rejected a remaining repeated generated package-context ConfigMap warning. Root and nested Porch metadata exclusions are corrected; complete deletion and fresh attempt-03 validation remain pending. Functional success is not full deployment acceptance.",
+    "evidence": "validation/free5gc-demo/private/native-rebuild/",
+    "publication": "Owner requested pushing the current feature branch on 2026-11-24. GitHub Actions permissions inspection returned HTTP 403; deny-by-default exception applies. Workflow inventory is empty; no Actions workflow dispatched.",
+    "management_settings": "All eight management packages and Core/Edge retain parameter templates across render. Native Porch edit verified cluster-name, namespace and all five GPU target references.",
+    "corrective_configuration_revision": "3ab4b1473ffbf3c9e13073fe1f15d532ff48a916"
+  }
+}

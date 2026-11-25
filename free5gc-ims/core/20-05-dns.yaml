@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ims-dns
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+data:
+  Corefile: |
+    @{ims-domain}:53 {
+     bind @{core-worker-ip}
+     errors
+     file /config/ims.zone
+    }
+    .:53 {
+     bind @{core-worker-ip}
+     errors
+     forward . @{dns-upstream}
+    }
+  ims.zone: |
+    $ORIGIN @{ims-domain}.
+    $TTL 60
+    @ IN SOA ns.@{ims-domain}. admin.@{ims-domain}. (2026110401 60 60 3600 60)
+    @ IN NS ns
+    @ IN A @{core-worker-ip}
+    ns IN A @{core-worker-ip}
+    pcscf IN A @{pcscf-ip}
+    icscf IN A @{core-worker-ip}
+    scscf IN A @{core-worker-ip}
+    hss IN A @{core-worker-ip}
+    _sip._udp IN SRV 0 0 5060 icscf
+    _sip._tcp IN SRV 0 0 5060 icscf
+    _sip._udp.pcscf IN SRV 0 0 5060 pcscf
+    _sip._tcp.pcscf IN SRV 0 0 5060 pcscf
+    _sip._udp.scscf IN SRV 0 0 6060 scscf
+    _sip._tcp.scscf IN SRV 0 0 6060 scscf
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ims-dns
+  namespace: ims-lab
+  labels:
+    app: ims-dns
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  hostNetwork: true
+  dnsPolicy: Default
+  nodeSelector:
+    kubernetes.io/hostname: '@{core-node-name}'
+  containers:
+    - name: dns
+      image: registry.k8s.io/coredns/coredns@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e
+      args:
+        - -conf
+        - /config/Corefile
+      volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+  volumes:
+    - name: config
+      configMap:
+        name: ims-dns

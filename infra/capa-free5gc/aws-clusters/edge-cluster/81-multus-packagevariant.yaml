@@ -1,0 +1,23 @@
+apiVersion: config.porch.kpt.dev/v1alpha1
+kind: PackageVariant
+metadata:
+  name: '@{edge-cluster-name}-multus'
+  namespace: default
+spec:
+  annotations:
+    approval.nephio.org/policy: initial
+  upstream:
+    repo: catalog-infra-capi
+    package: multus
+    revision: v2.0.0
+  downstream:
+    repo: mgmt-staging
+    package: '@{edge-cluster-name}-multus'
+  injectors:
+    - kind: WorkloadCluster
+      name: '@{edge-cluster-name}'
+  pipeline:
+    mutators:
+      - image: ghcr.io/kptdev/krm-functions-catalog/set-annotations:v0.1.4
+        configMap:
+          nephio.org/cluster-name: '@{edge-cluster-name}'

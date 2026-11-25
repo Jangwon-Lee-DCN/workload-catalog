@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voice-stt-model
+  namespace: voice-system
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 7200
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: download
+        image: docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
+        command:
+        - python
+        - -c
+        args:
+        - |
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+          subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', 'huggingface_hub==2.2.0'], check=True)
+          from huggingface_hub import snapshot_download
+          revision='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
+          root=Path('/model')
+          snapshot_download('mobiuslabsgmbh/faster-whisper-large-v3-turbo',revision=revision,local_dir=str(root))
+          names=['config.json','model.bin','preprocessor_config.json','tokenizer.json','vocabulary.json']
+          assert all((root/n).is_file() for n in names)
+          files={n:hashlib.sha256((root/n).read_bytes()).hexdigest() for n in names}
+          Path('/quality/manifest.json').write_text(json.dumps({'model':'mobiuslabsgmbh/faster-whisper-large-v3-turbo','revision':revision,'files':files},indent=2))
+          print('STT_MODEL_READY',flush=True)
+        volumeMounts:
+        - name: quality
+          mountPath: /quality
+        - name: model
+          mountPath: /model
+      volumes:
+      - name: quality
+        hostPath:
+          path: /opt/voice-quality
+          type: DirectoryOrCreate
+      - name: model
+        hostPath:
+          path: /opt/voice-quality/model
+          type: DirectoryOrCreate
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

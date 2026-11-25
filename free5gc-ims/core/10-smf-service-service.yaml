@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: smf
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/part-of: free5gc-cp
+  name: smf-service
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+    - name: sbi
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+    - name: pfcp
+      port: 8805
+      protocol: UDP
+      targetPort: 8805
+  selector:
+    app: smf
+  sessionAffinity: None
+  type: ClusterIP

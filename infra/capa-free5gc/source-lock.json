@@ -1,0 +1,95 @@
+{
+  "management_original": {
+    "repository": "nephio/mgmt",
+    "revision": "a4e5aa09b3466c030783ab4a4b1811d2eaf2ccdf",
+    "packages": [
+      "core-cluster",
+      "edge-cluster"
+    ],
+    "upstream": "https://github.com/vitu-mafeni/catalog.git",
+    "upstream_revision": "f767cdea40b5627badd9af55478b85411aecbbf9"
+  },
+  "network_addons_original": {
+    "repository": "nephio/mgmt-staging",
+    "revision": "6b3f33c5b901939bd2b1a22f09c63eb3958fd5df",
+    "packages": [
+      "core-flannel",
+      "core-multus",
+      "edge-flannel",
+      "edge-multus"
+    ]
+  },
+  "eni_controller_baseline": "c12b84a235489611ee55d585b1cdc865bb9d8574",
+  "live_applied": false,
+  "upstream_images": {
+    "docker.io/flannel/flannel-cni-plugin:v1.4.1-flannel1": "docker.io/flannel/flannel-cni-plugin:v1.4.1-flannel1@sha256:e88c0d84fa89679eb6cb6a28bc257d652ced8d1b2e44d54a592f0a2cd85dba53",
+    "docker.io/flannel/flannel:v0.25.4": "docker.io/flannel/flannel:v0.25.4@sha256:17415d91743e53fc4b852676a30a08915f131a2b6848d891ba5786eacd447076",
+    "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.0.2-thick": "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.0.2-thick@sha256:3fbcc32bd4e4d15bd93c96def784a229cd84cca27942bf4858b581f31c97ee02",
+    "registry.k8s.io/provider-aws/aws-ebs-csi-driver:v1.25.0": "registry.k8s.io/provider-aws/aws-ebs-csi-driver:v1.25.0@sha256:b09b785943922346f0ccd98146fe574ec661ceb49c6c3e4b7f54c4a12372a3eb",
+    "registry.k8s.io/provider-aws/cloud-controller-manager:v1.28.3": "registry.k8s.io/provider-aws/cloud-controller-manager:v1.28.3@sha256:a2fa4d07b7a9dd5008f4f52250cedecfa44308cd715455096a5bab78b3febe69",
+    "registry.k8s.io/sig-storage/csi-attacher:v4.4.2": "registry.k8s.io/sig-storage/csi-attacher:v4.4.2@sha256:11b955fe4da278aa0e8ca9d6fd70758f2aec4b0c1e23168c665ca345260f1882",
+    "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.2": "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.2@sha256:a18e989a93722e43885120e90bc1d0da0740fcbf44bc10403572b368b9800606",
+    "registry.k8s.io/sig-storage/csi-provisioner:v3.6.2": "registry.k8s.io/sig-storage/csi-provisioner:v3.6.2@sha256:49b94f975603d85a1820b72b1188e5b351d122011b3e5351f98c49d72719aa78",
+    "registry.k8s.io/sig-storage/csi-resizer:v1.9.2": "registry.k8s.io/sig-storage/csi-resizer:v1.9.2@sha256:e998f22243869416f9860fc6a1fb07d4202eac8846defc1b85ebd015c1207605",
+    "registry.k8s.io/sig-storage/csi-snapshotter:v6.3.2": "registry.k8s.io/sig-storage/csi-snapshotter:v6.3.2@sha256:4c5a1b57e685b2631909b958487f65af7746361346fcd82a8635bea3ef14509d",
+    "registry.k8s.io/sig-storage/livenessprobe:v2.11.0": "registry.k8s.io/sig-storage/livenessprobe:v2.11.0@sha256:82adbebdf5d5a1f40f246aef8ddbee7f89dea190652aefe83336008e69f9a89f"
+  },
+  "eni_controller": {
+    "repository": "https://github.com/Jangwon-Lee-DCN/capa-eni-controller.git",
+    "revision": "240bff1bccbc2cc9ff83277a05791993f7f03b72",
+    "image": "docker.io/jangwonlee/capa-eni-controller@sha256:57c2f32107b6b4c398fb2e3697adbb3d4de9445a975cd06410ea5fdf29c1fc14",
+    "image_tag": "docker.io/jangwonlee/capa-eni-controller:sha-240bff1bccbc2cc9ff83277a05791993f7f03b72",
+    "manifest_digest": "sha256:57c2f32107b6b4c398fb2e3697adbb3d4de9445a975cd06410ea5fdf29c1fc14",
+    "image_config_id": "sha256:9d7bbe273c036eae8d1f803ceb6ca63af097c4e787dcfd1296efb9e557941d3f",
+    "architecture": "amd64",
+    "remote_published": true,
+    "anonymous_pull_verified": true,
+    "publication": {
+      "rebuilt": false,
+      "live_rollout": false,
+      "accepted_live_image": "localhost/capa-eni-controller:source-240bff1bccbc"
+    }
+  },
+  "development_scope": {
+    "namespace": "free5gc-eni-demo",
+    "clusters": [
+      "demo-cpu-a",
+      "demo-cpu-b"
+    ],
+    "production_promoted": false
+  },
+  "blueprint_layout": {
+    "cni_delivery": "PackageVariant -> mgmt-staging -> Nephio bootstrap-packages reconciler",
+    "ccm_csi": "original CAPA CRS bootstrap; no additional installer",
+    "reference_mgmt_revision": "a4e5aa09b3466c030783ab4a4b1811d2eaf2ccdf",
+    "reference_staging_revision": "6b3f33c5b901939bd2b1a22f09c63eb3958fd5df",
+    "live_candidate_applied": true
+  },
+  "baseline_live_revision": "debb98a3d5352e447351af60603796115889e2e1",
+  "native_gitops_acceptance": {
+    "source_revision": "c58764c714b696303823eda12679267744cb97fb",
+    "applied_at": "2026-11-23T08:53:31Z",
+    "accepted_at": "2026-11-23T09:12:55Z",
+    "manual_repairs": 0,
+    "source_files_unchanged": 176,
+    "gitops_revisions": {
+      "demo-cpu-a": "1f1737f2144417c60ddbfed2b225a91667fc6fe8",
+      "demo-cpu-b": "41a9e741968df2b1165c9c0aefb500ce9f1e891e"
+    }
+  },
+  "current_operational_acceptance": {
+    "repository": "openstack-production-datacenter",
+    "revision": "c2962ffe96e00e821b240ab45526f8d76c4b369b",
+    "path": "docs/operations/change-contracts/free5gc-fixed-eni-packaging.yaml",
+    "section": "gpu_packaging.full_demo_rebuild",
+    "state": "accepted",
+    "tested_catalog_configuration_revision": "c5fe4d4f81cfe4bfd9f543a758e1886ca40c1ba8",
+    "publication": "local-only; no new GitHub push authorized"
+  },
+  "accepted_baseline_live_applied": true,
+  "porch_service_deployment_candidate": {
+    "status": "isolated-validated-not-promoted",
+    "definition": "free5gc-ims/source-lock.json#porch_deployment_candidate",
+    "changes": "Native Porch service publication, automatic GPU PackageVariants and repeatable site setters. Accepted serving clusters unchanged."
+  }
+}

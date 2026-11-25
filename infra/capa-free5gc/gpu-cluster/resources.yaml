@@ -1,0 +1,182 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSCluster
+metadata:
+  name: '@{gpu-cluster-name}'
+  namespace: '@{namespace}'
+spec:
+  region: '@{aws-region}'
+  sshKeyName: '@{ssh-key-name}'
+  network:
+    vpc:
+      id: '@{vpc-id}'
+    subnets:
+    - id: '@{public-subnet-id}'
+      availabilityZone: '@{aws-az}'
+      isPublic: true
+    additionalControlPlaneIngressRules:
+    - description: GPU API
+      protocol: tcp
+      fromPort: 8090
+      toPort: 8090
+      cidrBlocks:
+      - 0.0.0.0/0
+    - description: GPU SSH
+      protocol: tcp
+      fromPort: 22
+      toPort: 22
+      cidrBlocks:
+      - 0.0.0.0/0
+  controlPlaneLoadBalancer:
+    loadBalancerType: nlb
+    scheme: internet-facing
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSMachineTemplate
+metadata:
+  name: '@{gpu-cluster-name}-control-plane-@{template-revision}'
+  namespace: '@{namespace}'
+spec:
+  template:
+    spec:
+      ami:
+        id: '@{node-ami}'
+      instanceType: '@{instance-type}'
+      iamInstanceProfile: '@{iam-profile}'
+      subnet:
+        id: '@{public-subnet-id}'
+      publicIP: true
+      sshKeyName: '@{ssh-key-name}'
+      rootVolume:
+        size: 400
+        type: gp3
+        iops: 3000
+        throughput: 500
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  name: '@{gpu-cluster-name}-control-plane'
+  namespace: '@{namespace}'
+spec:
+  replicas: 1
+  version: '@{kubernetes-version}'
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+      kind: AWSMachineTemplate
+      name: '@{gpu-cluster-name}-control-plane-@{template-revision}'
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration: &id001
+        name: '{{ ds.meta_data.local_hostname }}'
+        criSocket: unix:///var/run/crio/crio.sock
+        taints: []
+        kubeletExtraArgs:
+          provider-id: aws:///@{aws-az}/{{ ds.meta_data.instance_id }}
+    joinConfiguration:
+      nodeRegistration: *id001
+    files:
+    - path: /etc/systemd/system/gpu-cr-restore-agent.service.d/10-runtime.conf
+      owner: root:root
+      permissions: '0644'
+      content: |
+        [Service]
+        Environment=GCR_CRUN=/usr/local/bin/crun
+        Environment=GCR_AGENT_POLL=0.1
+    - path: /usr/local/sbin/prepare-ims-gpu
+      owner: root:root
+      permissions: '0755'
+      content: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        . /etc/os-release
+        test "$ID:$VERSION_ID" = ubuntu:24.04
+        test "$(uname -m)" = x86_64
+        export DEBIAN_FRONTEND=noninteractive
+        # The CAPA image freezes OS packages. Release only during dependency installation.
+        apt-mark showhold > /var/lib/ims-gpu-original-holds.txt
+        trap 'xargs -r apt-mark hold < /var/lib/ims-gpu-original-holds.txt >/dev/null' EXIT
+        apt-mark showhold | { grep -Ev '^(kubeadm|kubectl|kubelet|kubernetes-cni|cri-o|cri-tools|containerd|runc|crun)$' || true; } | xargs -r apt-mark unhold >/dev/null
+        apt-get update
+        apt-get install -y curl ca-certificates gnupg python3-yaml skopeo ffmpeg conmon \
+          libnet1 libprotobuf-c1 libnftables1 libnl-3-200 libgnutls30t64 \
+          libseccomp2 libgpgme11t64 libassuan0 libyajl2 libsystemd0 libcap2 \
+          linux-headers-"$(uname -r)"
+        # Upgrade the public CAPA base's matching 1.33 tools before kubeadm starts.
+        apt-mark unhold kubeadm kubelet kubectl >/dev/null
+        apt-get install -y --allow-downgrades kubeadm=1.33.13-1.1 kubelet=1.33.13-1.1 kubectl=1.33.13-1.1
+        apt-mark hold kubeadm kubelet kubectl >/dev/null
+        # Install a single-layer, digest-pinned binary release; no node-side source build.
+        RELEASE='docker.io/jangwonlee/ims-gpu-node-runtime@sha256:318d934ce258828e662e605edc7095b500196076150b424a92c96e581c4170b6'
+        mkdir -p /var/cache/ims-gpu-runtime
+        skopeo copy --preserve-digests "docker://$RELEASE" dir:/var/cache/ims-gpu-runtime
+        systemctl stop crio gpu-cr-restore-agent 2>/dev/null || true
+        python3 - <<'PY'
+        import hashlib,json,pathlib,subprocess
+        root=pathlib.Path('/var/cache/ims-gpu-runtime')
+        manifest=(root/'manifest.json').read_bytes()
+        assert hashlib.sha256(manifest).hexdigest()=='318d934ce258828e662e605edc7095b500196076150b424a92c96e581c4170b6'
+        layers=json.loads(manifest)['layers']
+        assert len(layers)==1
+        layer=layers[0]['digest'].split(':',1)[1]
+        path=root/layer
+        assert hashlib.file_digest(path.open('rb'),'sha256').hexdigest()==layer
+        subprocess.run(['tar','-xf',str(path),'-C','/'],check=True)
+        PY
+        mkdir -p /etc/criu /etc/crio/crio.conf.d /var/lib/gpu-cr/run /var/lib/gcr-data \
+          /usr/local/lib/gpu-cr-restore/hooks/lib /etc/containers
+        printf '[storage]\ndriver="overlay"\nrunroot="/run/containers/storage"\ngraphroot="/var/lib/containers/storage"\n' > /etc/containers/storage.conf
+        printf 'runtime-endpoint: unix:///var/run/crio/crio.sock\nimage-endpoint: unix:///var/run/crio/crio.sock\n' > /etc/crictl.yaml
+        ldconfig
+        /usr/local/bin/crun --version | grep -q '+CRIU'
+        if ! nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | grep -qx 580.178.04; then
+          curl -fL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb
+          dpkg -i /tmp/cuda-keyring.deb
+          apt-get update
+          apt-get install -y nvidia-driver-pinning-580.178.04
+          apt-get install -y --no-install-recommends --allow-downgrades nvidia-driver-580-open=580.178.04-1ubuntu1 nvidia-open=580.178.04-1ubuntu1
+        fi
+        modprobe nvidia
+        nvidia-smi --query-gpu=driver_version --format=csv,noheader | grep -qx 580.178.04
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        apt-get update
+        apt-get install -y nvidia-container-toolkit=1.20.1-1 nvidia-container-toolkit-base=1.20.1-1 libnvidia-container-tools=1.20.1-1 libnvidia-container1=1.20.1-1
+        mkdir -p /etc/cdi /var/lib/voice-private/aisrc /var/lib/gcr-checkpoint /var/lib/gcr-data /var/lib/gpu-cr/run /var/lib/qwen-tts-lab
+        nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+        # kubeadm has not run: switch the CRI socket without rebooting a joined node.
+        systemctl stop kubelet
+        systemctl disable --now containerd
+        for config in /etc/cni/net.d/*bridge*.conflist; do
+          if test -f "$config"; then mv "$config" "$config.disabled"; fi
+        done
+        modprobe overlay
+        modprobe br_netfilter
+        sysctl --system >/dev/null
+        systemctl daemon-reload
+        systemctl enable crio gpu-cr-restore-agent kubelet
+        systemctl restart crio gpu-cr-restore-agent
+        crictl info >/dev/null
+        sysctl -w net.ipv4.ip_forward=1
+        echo GPU_HOST_READY
+    preKubeadmCommands:
+    - until bash /usr/local/sbin/prepare-ims-gpu; do sleep 15; done
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: '@{gpu-cluster-name}'
+  namespace: '@{namespace}'
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 10.244.0.0/16
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: '@{gpu-cluster-name}-control-plane'
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+    kind: AWSCluster
+    name: '@{gpu-cluster-name}'

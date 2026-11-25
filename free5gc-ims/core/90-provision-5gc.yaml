@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ims-provision-5gc
+  namespace: ims-lab
+  annotations:
+    config.kubernetes.io/depends-on: apps/namespaces/free5gc/Deployment/webui
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  backoffLimit: 12
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: provision
+          image: mongo:4.4
+          command:
+            - mongo
+            - mongodb.free5gc.svc.cluster.local/free5gc
+            - /bootstrap/provision.js
+          volumeMounts:
+            - name: code
+              mountPath: /bootstrap
+              readOnly: true
+      volumes:
+        - name: code
+          secret:
+            secretName: ims-5gc-provision
+      nodeSelector:
+        kubernetes.io/hostname: '@{core-node-name}'

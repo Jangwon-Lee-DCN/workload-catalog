@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ims-site-setters
+  annotations:
+    config.kubernetes.io/local-config: 'true'
+    argocd.argoproj.io/hook: Skip
+data:
+  core-worker-ip: 172.31.81.10
+  edge-worker-ip: 172.31.81.11
+  core-node-name: ip-172-31-81-10.ap-northeast-2.compute.internal
+  edge-node-name: ip-172-31-81-11.ap-northeast-2.compute.internal
+  ims-domain: ims.mnc001.mcc001.3gppnetwork.org
+  ims-domain-regex: ims\.mnc001\.mcc001\.3gppnetwork\.org
+  pcscf-ip: 172.31.93.210
+  rtpengine-ip: 172.31.93.211
+  mec-ip: 172.31.93.213
+  upf-n6-ip: 172.31.93.203
+  amf-n2-ip: 172.31.90.200
+  smf-n4-ip: 172.31.91.176
+  upf-n4-ip: 172.31.91.202
+  upf-n3-ip: 172.31.92.201
+  gnb-n2-ip: 172.31.90.204
+  gnb-n3-ip: 172.31.92.205
+  n2-gateway: 172.31.90.1
+  n4-gateway: 172.31.91.1
+  n3-gateway: 172.31.92.1
+  n6-gateway: 172.31.93.1
+  n6-cidr: 172.31.93.0/24
+  ue-cidr: 10.1.0.0/16
+  n2-master: ens6
+  n4-master: ens7
+  n3-master: ens8
+  n6-master: ens9
+  storage-class: standard
+  dns-upstream: 169.254.169.253
+  mysql-password: password
+  kamailio-password: password
+  hss-password: password
+  ue-1-key: 00112233445566778899aabbccddeeff
+  ue-1-opc: ffeeddccbbaa99887766554433221100
+  ue-2-key: 102132435465768798a9bacbdcedfe0f
+  ue-2-opc: 0ffedccba98765432100123456789abc
+  mec-key: 11223344556677889900aabbccddeeff
+  mec-opc: ffeeddccbbaa00998877665544332211
+  generation-auth-token: password
+  generation-provider: gpu_local
+  generation-enabled: 'true'
+  inspection-enabled: 'false'
+  phone-hostname: phone.example.net
+  image-tools: docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25
+  image-kamailio: ghcr.io/herlesupreeth/docker_kamailio@sha256:6f7c427db924370ba64eb23f27c0d62f50e7856ea10a2205836bdedaf54d31f8
+  image-pyhss: ghcr.io/herlesupreeth/docker_pyhss@sha256:ecd1559e12aadbb0a27ece69972b9fa6a897c82e202cac6a054e8d9e2bb8b1fd
+  source: |
+    # Preserve parameterized fields across Porch's automatic render after clone/edit.
+    # The generated local-config file is excluded from ArgoCD by set-*.yaml.
+    cfg = ctx.resource_list["functionConfig"]["data"]
+    cfg["ims-domain-regex"] = cfg["ims-domain"].replace(".", "\\.")
+    cfg["upf-n6-regex"] = cfg["upf-n6-ip"].replace(".", "[.]")
+    if "public-source-cidrs" in cfg:
+        cfg["public-access-rules"] = "\n".join(["allow " + cidr.strip() + ";" for cidr in cfg["public-source-cidrs"].split(",") if cidr.strip()])
+    def replace_tokens(value):
+        for key in cfg:
+            if key != "source":
+                value = value.replace("@{" + key + "}", cfg[key])
+        return value
+
+    def identity(resource):
+        meta = resource.get("metadata", {})
+        return "|".join([resource.get("apiVersion", ""), resource.get("kind", ""), meta.get("namespace", ""), meta.get("name", "")])
+
+    def pointer_key(key):
+        return str(key).replace("~", "~0").replace("/", "~1")
+
+    items = ctx.resource_list["items"]
+    states = [r for r in items if r.get("kind") == "ConfigMap" and r.get("metadata", {}).get("name") == "ims-render-state"]
+    state = states[0] if states else {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "ims-render-state", "annotations": {"config.kubernetes.io/local-config": "true", "config.kubernetes.io/path": "set-render-state.yaml", "internal.config.kubernetes.io/path": "set-render-state.yaml"}}, "data": {}}
+    records = state["data"]
+    lookup = {}
+    for key in records:
+        if key.endswith("-resource") and not key.endswith("-rendered-resource"):
+            prefix = key[:-9]
+            lookup[records[key] + "|" + records[prefix + "-path"]] = prefix
+            rendered = records.get(prefix + "-rendered-resource")
+            if rendered != None:
+                lookup[rendered + "|" + records[prefix + "-path"]] = prefix
+    for resource in items:
+        if resource.get("metadata", {}).get("annotations", {}).get("config.kubernetes.io/local-config") == "true":
+            continue
+        rid = identity(resource)
+        used = []
+        pending = [(resource, key, "/" + pointer_key(key)) for key in resource]
+        for depth in range(64):
+            following = []
+            for parent, key, path in pending:
+                value = parent[key]
+                if type(value) == "string":
+                    token_key = rid + "|" + path
+                    prefix = lookup.get(token_key)
+                    # New upstream template text takes precedence over the stored render input.
+                    if "@{" in value and any(["@{" + name + "}" in value for name in cfg if name != "source"]):
+                        if prefix == None:
+                            prefix = "r" + str(len(records))
+                            lookup[token_key] = prefix
+                        records[prefix + "-resource"] = rid
+                        records[prefix + "-path"] = path
+                        records[prefix + "-template"] = value
+                    if prefix != None:
+                        used.append(prefix)
+                        parent[key] = replace_tokens(records[prefix + "-template"])
+                elif type(value) == "dict":
+                    following.extend([(value, child, path + "/" + pointer_key(child)) for child in value])
+                elif type(value) == "list":
+                    following.extend([(value, index, path + "/" + str(index)) for index in range(len(value))])
+            pending = following
+            if not pending:
+                break
+        for prefix in used:
+            records[prefix + "-rendered-resource"] = identity(resource)
+    if not states:
+        items.append(state)
+  upf-n6-regex: 172[.]31[.]93[.]203

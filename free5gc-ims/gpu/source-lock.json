@@ -1,0 +1,191 @@
+{
+  "catalog_parent": "a6de7959b963f8a782520109360a57e1f72569b4",
+  "ami": {
+    "region": "ap-northeast-2",
+    "id": "ami-0f0bd37b402de10d7",
+    "owner": "819546954734",
+    "private": false,
+    "name": "capa-ami-ubuntu-24.04-v1.33.4-1773254741",
+    "base_kubernetes": "1.33.4",
+    "base_runtime": "containerd",
+    "contains_private_assets": false
+  },
+  "platform": {
+    "kubernetes": "1.33.13",
+    "crio": "1.33.13",
+    "knative_serving": "1.21.0",
+    "kourier": "1.21.0",
+    "nvidia_driver": "580.178.04",
+    "container_toolkit": "1.20.1-1",
+    "sharing": "standard NVIDIA time-slicing / 6 slots",
+    "metrics_server": "0.8.1"
+  },
+  "models": {
+    "qwen": {
+      "repository": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "revision": "fd4b254389122332181a7c3db7f27e918eec64e3"
+    },
+    "stt": {
+      "repository": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
+    }
+  },
+  "images": [
+    "docker.io/envoyproxy/envoy@sha256:93e25ef06d87a908a1114e8dff9a2b3a3046fbbfda7e644d448d752332633de6",
+    "docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25",
+    "docker.io/jangwonlee/ims-gpu-api@sha256:9f97d0c997ad5bd57ddf9444358f9aaf0725e61b25ec294d87a9624aeb5902ca",
+    "docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
+    "docker.io/library/ubuntu@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",
+    "docker.io/library/ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55",
+    "docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee",
+    "gcr.io/knative-releases/knative.dev/net-kourier/cmd/kourier@sha256:1dfd7339e6d59db29a5375eb5e5ff3bfb0f5d28e076d1e665c9ac9ada45931cd",
+    "gcr.io/knative-releases/knative.dev/serving/cmd/activator@sha256:80e3ad8e55271a411706186aadb8898238b4bd4571074b014d81724f946ad540",
+    "gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler@sha256:c9bb97396f3611c8d6fae6092725bdfded4b2a350e6227260b063d593063a6da",
+    "gcr.io/knative-releases/knative.dev/serving/cmd/controller@sha256:7bd4b86220d8df7cc6fa7801bbf816ffd5dbfa4ac0388bbf3a73980b763d2706",
+    "gcr.io/knative-releases/knative.dev/serving/cmd/queue@sha256:d479c6879b4e5429745f96026679e6267e7b5a8cfc7dc8e334a64d4241cd5c1a",
+    "gcr.io/knative-releases/knative.dev/serving/cmd/webhook@sha256:c8fa5b064b88b2df4ae77545e4f198a9e5d62c8d7b3d72b30e48137f53773b68",
+    "nvcr.io/nvidia/k8s-device-plugin@sha256:27c1b2553a690ca3d29889dcd61df97525d46f58272c0be8dc63c2b18f120075",
+    "registry.k8s.io/metrics-server/metrics-server@sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41",
+    "localhost/sasv-api-secure:baseline",
+    "docker.io/jangwonlee/ims-gpu-node-runtime@sha256:318d934ce258828e662e605edc7095b500196076150b424a92c96e581c4170b6"
+  ],
+  "aisrc_input": {
+    "path": "/var/lib/voice-private/aisrc",
+    "completion_marker": ".ready",
+    "source": "separately delivered files; no AMI fallback",
+    "files": [
+      "image.tar",
+      "machine-id",
+      "runtime/client.env",
+      "runtime/pretrained",
+      "runtime/DATA/license",
+      "runtime/DATA/security"
+    ],
+    "archive": "voice-studio-platform-internal-20261030.tar.gz",
+    "archive_subtree": "voice-studio-platform/private/aisrc"
+  },
+  "services": {
+    "sasv-restored": {
+      "minScale": 0,
+      "maxScale": 2
+    },
+    "voice-ims-fast": {
+      "minScale": 0,
+      "maxScale": 1
+    }
+  },
+  "stages": [
+    "00-namespaces",
+    "10-crds",
+    "20-platform",
+    "30-models",
+    "40-faas"
+  ],
+  "runtime_activation": "Before kubeadm: install dependencies, pinned binary release, driver/toolkit; disable containerd; start CRI-O; leave Pod networking to Flannel.",
+  "previous_private_ami_acceptance": {
+    "state": "development-accepted",
+    "date": "2026-11-23",
+    "target": "isolated CAPA demo-gpu-d",
+    "host_manual_repairs": 0,
+    "platform_initial_condition": "Knative/Kourier namespaces absent when validating corrected webhook dependency",
+    "source_capture_initial_condition": "Qwen source Pod and checkpoint absent when validating probe fix",
+    "initial_install_defects_fixed": [
+      "Knative routing certificate waits for webhook Deployment",
+      "one-shot source Pods have no concurrent kubelet probes and health response is fully drained"
+    ],
+    "real_browser": {
+      "bidirectional_ims_calls": true,
+      "microphone_reference_seconds": 20,
+      "uploaded_reference_seconds": 30,
+      "generation_provider": "gpu_local",
+      "generation_returned_to_caller_then_rtp": true,
+      "mec_to_gpu_detection_then_sip_result": true,
+      "model_log_scores_delivered": true,
+      "actual_detector_states": [
+        "0",
+        "1 Ready",
+        "2 Ready",
+        "0"
+      ],
+      "browser_errors": 0,
+      "sip_message_errors": 0
+    },
+    "cached_zero_to_first_detection_seconds": 10.638,
+    "detection_input_seconds": 4,
+    "response_prediction": "Real",
+    "both_detector_pods_completed_requests": true,
+    "same_faas_reapply_preserves_revision": true,
+    "metrics_api_available": true,
+    "original_serving_gpu_changed": false,
+    "github_published": false
+  },
+  "acceptance": {
+    "state": "development-accepted",
+    "date": "2026-11-23",
+    "target": "isolated CAPA demo-gpu-f",
+    "base_ami": "ami-0f0bd37b402de10d7",
+    "host_manual_repairs": 0,
+    "private_input_archive": "voice-studio-platform-internal-20261030.tar.gz",
+    "private_input_subtree": "voice-studio-platform/private/aisrc",
+    "archive_files": 13,
+    "blueprint": {
+      "catalog_revision": "43f219fe11bace27f211455b24ab9544d5b32ab9",
+      "gpu_yaml_files": 23,
+      "gpu_yaml_sha256": "5dc9f71b1d44b2add9c78f434f49e8cd2d76cb0272edb53b3ae4e194d8446bdb",
+      "matches_applied_files": true
+    },
+    "platform_resources_passed": 97,
+    "faas_resources_passed": 14,
+    "cached_zero_to_first_detection_seconds": 10.158,
+    "detection_input_seconds": 4,
+    "response_prediction": "Real",
+    "generation_wall_seconds": 10.19,
+    "generation_audio_seconds": 5.36,
+    "generation_content_check": "passed",
+    "phone_generation_seconds": [
+      6.638,
+      16.35
+    ],
+    "both_detector_pods_completed_requests": true,
+    "phone_detector_completed_counts": [
+      1,
+      19
+    ],
+    "real_browser": {
+      "bidirectional_ims_calls": true,
+      "microphone_reference_seconds": 20,
+      "uploaded_reference_seconds": 30,
+      "generation_provider": "gpu_local",
+      "generation_returned_to_caller_then_rtp": true,
+      "mec_to_gpu_detection_then_sip_result": true,
+      "model_log_scores_delivered": true,
+      "actual_detector_states": [
+        "0",
+        "1 Ready",
+        "2 Ready",
+        "0"
+      ],
+      "browser_errors": 0,
+      "sip_message_errors": 0
+    },
+    "same_faas_reapply_preserves_revision": true,
+    "original_serving_gpu_changed": false,
+    "github_published": false
+  },
+  "node_runtime": {
+    "image": "docker.io/jangwonlee/ims-gpu-node-runtime@sha256:318d934ce258828e662e605edc7095b500196076150b424a92c96e581c4170b6",
+    "distribution": "prebuilt stripped ELF binaries, runtime configuration, public optimization libraries and VAD seed",
+    "private_implementation_source": false,
+    "aisrc_application_or_authentication": false
+  },
+  "private_runtime_implementation_source_included": false,
+  "current_operational_acceptance": {
+    "repository": "openstack-production-datacenter",
+    "revision": "c2962ffe96e00e821b240ab45526f8d76c4b369b",
+    "path": "docs/operations/change-contracts/free5gc-fixed-eni-packaging.yaml",
+    "section": "gpu_packaging.full_demo_rebuild",
+    "state": "accepted",
+    "tested_catalog_configuration_revision": "c5fe4d4f81cfe4bfd9f543a758e1886ca40c1ba8",
+    "publication": "local-only; no new GitHub push authorized"
+  }
+}

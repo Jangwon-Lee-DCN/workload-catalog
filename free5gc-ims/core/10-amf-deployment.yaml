@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/instance: core
+  name: amf
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: amf
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: free5gc-amf-n2
+      labels:
+        app: amf
+    spec:
+      containers:
+        - command:
+            - ./amf
+            - -c
+            - /free5gc/config/amfcfg.yaml
+          image: docker.io/free5gc/amf@sha256:1bc96ff5a2a642f8035c1354566cfaf5f7e644723d545ad9c64df22efaa6376c
+          imagePullPolicy: IfNotPresent
+          name: amf
+          ports:
+            - containerPort: 8000
+              name: sbi
+              protocol: TCP
+            - containerPort: 38412
+              name: ngap
+              protocol: SCTP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /free5gc/config/amfcfg.yaml
+              name: config
+              subPath: amfcfg.yaml
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - command:
+            - sh
+            - -c
+            - until nc -zw3 nrf-service.free5gc.svc.cluster.local 8000; do echo waiting for nrf; sleep 2; done
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          name: wait-nrf
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      nodeName: '@{core-node-name}'
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: amf-config
+          name: config

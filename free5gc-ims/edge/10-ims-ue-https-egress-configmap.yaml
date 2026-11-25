@@ -1,0 +1,30 @@
+apiVersion: v1
+data:
+  reconcile.sh: |
+    #!/bin/sh
+    # UPF network namespace: only UE HTTPS traffic uses this N6 policy.
+    set -eu
+    mode=${1:-reconcile}
+    gateway=${N6_GATEWAY:-@{n6-gateway}}
+    rule() { ip rule "$1" priority 1082 from @{ue-cidr} ipproto tcp dport 443 table 1082; }
+    nat() { iptables -t nat "$1" POSTROUTING -s @{ue-cidr} -o net3 -p tcp --dport 443 -m comment --comment ims-ue-external-https -j MASQUERADE; }
+    check() {
+     ip rule show | grep -q '^1082:.*from @{ue-cidr}.*ipproto tcp.*dport 443.*lookup 1082'
+     ip route show table 1082 | grep -q "default via $gateway dev net3"
+     nat -C
+    }
+    if [ "$mode" = check ]; then check; exit; fi
+    while :; do
+     if ip -4 addr show net3 2>/dev/null | grep -q inet; then
+      ip route replace default via "$gateway" dev net3 table 1082
+      ip rule show | grep -q '^1082:' || rule add
+      nat -C 2>/dev/null || nat -A
+     fi
+     sleep 5
+    done
+kind: ConfigMap
+metadata:
+  name: ims-ue-https-egress
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'

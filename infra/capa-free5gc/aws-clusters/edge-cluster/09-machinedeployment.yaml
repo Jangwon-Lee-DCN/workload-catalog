@@ -1,0 +1,41 @@
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: '@{edge-cluster-name}-md-0'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+spec:
+  clusterName: '@{edge-cluster-name}'
+  replicas: 1
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: '@{edge-cluster-name}'
+      cluster.x-k8s.io/deployment-name: '@{edge-cluster-name}-md-0'
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: '@{edge-cluster-name}-md-0-@{template-revision}'
+          namespace: '@{namespace}'
+      clusterName: '@{edge-cluster-name}'
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+        kind: AWSMachineTemplate
+        name: '@{edge-cluster-name}-md-0-@{template-revision}'
+        namespace: '@{namespace}'
+      version: '@{kubernetes-version}'
+      nodeDrainTimeout: 3m0s
+      nodeVolumeDetachTimeout: 5m0s
+      nodeDeletionTimeout: 2m0s
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: '@{edge-cluster-name}'
+        cluster.x-k8s.io/deployment-name: '@{edge-cluster-name}-md-0'
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1

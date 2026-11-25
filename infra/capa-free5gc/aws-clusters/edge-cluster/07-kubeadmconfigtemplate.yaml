@@ -1,0 +1,143 @@
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: '@{edge-cluster-name}-md-0-@{template-revision}'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+spec:
+  template:
+    spec:
+      preKubeadmCommands:
+        - set -eu
+        - for attempt in $(seq 1 120); do python3 /usr/local/sbin/check-fixed-eni-order.py && break; sleep 5; done; python3 /usr/local/sbin/check-fixed-eni-order.py
+        - netplan generate && netplan apply
+        - for attempt in $(seq 1 60); do ip -4 -o addr show dev ens5 | grep -F " @{edge-worker-ip}/" && break; sleep 2; done; ip -4 -o addr show dev ens5 | grep -F " @{edge-worker-ip}/"
+        - bash /usr/local/sbin/prepare-free5gc-node
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+            node-ip: '@{edge-worker-ip}'
+          name: '@{edge-node-name}'
+      files:
+        - path: /etc/cloud/cloud.cfg.d/99-free5gc-network.cfg
+          permissions: '0644'
+          content: |
+            network:
+              config: disabled
+        - path: /etc/netplan/50-cloud-init.yaml
+          permissions: '0600'
+          content: |
+            network:
+              version: 2
+              renderer: networkd
+              ethernets:
+                ens5:
+                  dhcp4: true
+                  dhcp6: false
+                ens6:
+                  dhcp4: false
+                  dhcp6: false
+                  link-local: []
+                  optional: true
+                ens7:
+                  dhcp4: false
+                  dhcp6: false
+                  link-local: []
+                  optional: true
+                ens8:
+                  dhcp4: false
+                  dhcp6: false
+                  link-local: []
+                  optional: true
+                ens9:
+                  dhcp4: false
+                  dhcp6: false
+                  link-local: []
+                  optional: true
+        - path: /usr/local/sbin/prepare-free5gc-node
+          permissions: '0755'
+          content: |
+            #!/usr/bin/env bash
+            # Run on each Ubuntu 22.04 worker. Usage: sudo bash prepare-node.sh core|edge
+            set -euo pipefail
+            role=edge
+            [[ "$role" == core || "$role" == edge ]]
+            fingerprint=$(sed "s/^role=.*/role=$role/" "${BASH_SOURCE[0]}" | sha256sum | awk '{print $1}')
+            stamp="/var/lib/ims-bootstrap/$role-$(uname -r).sha256"
+            if [[ -f "$stamp" && "$(cat "$stamp")" == "$fingerprint" && -x /opt/cni/bin/ipvlan && -x /opt/cni/bin/static ]]; then
+              if [[ "$role" == core ]] || grep -q '^gtp5g ' /proc/modules; then printf 'Worker prerequisites ready: %s\n' "$role"; exit 0; fi
+            fi
+            apt-get update
+            if [[ "$role" == edge ]] && ! command -v gcc-12 >/dev/null; then
+              compiler_held=()
+              held=$(apt-mark showhold)
+              for package in gcc-12 cpp-12 gcc-12-base libcc1-0 libgcc-12-dev libgcc-s1 libgomp1 libitm1 libatomic1 liblsan0 libubsan1 libquadmath0 libtsan2 libasan8 libstdc++6; do
+                if grep -qx "$package" <<< "$held"; then compiler_held+=("$package"); fi
+              done
+              if [[ -n "${compiler_held[*]}" ]]; then
+                apt-mark unhold "${compiler_held[@]}"
+                trap 'apt-mark hold "${compiler_held[@]}" >/dev/null || true' EXIT
+              fi
+              apt-get install -y gcc-12
+              if [[ -n "${compiler_held[*]}" ]]; then apt-mark hold "${compiler_held[@]}"; fi
+              trap - EXIT
+            fi
+            missing=()
+            packages=(ca-certificates curl git make gcc pkg-config libmnl-dev "linux-headers-$(uname -r)")
+            if [[ "$role" == edge ]]; then packages+=(gcc-12); fi
+            for package in "${packages[@]}"; do
+              if ! dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx 'installed'; then missing+=("$package"); fi
+            done
+            if [[ -n "${missing[*]}" ]]; then apt-get install -y "${missing[@]}"; fi
+            modprobe sctp
+            printf 'sctp\n' > /etc/modules-load.d/ims-sctp.conf
+            cat > /etc/sysctl.d/90-ims-forwarding.conf <<'EOF'
+            net.ipv4.ip_forward=1
+            net.ipv4.conf.all.rp_filter=0
+            net.ipv4.conf.default.rp_filter=0
+            EOF
+            sysctl --system
+            for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do printf 0 > "$setting"; done
+            if [[ "$role" == edge ]] && [[ "$(modinfo -F version gtp5g 2>/dev/null || true)" != 0.8.6 ]]; then
+              install -d /opt/ims-build
+              [[ -d /opt/ims-build/gtp5g/.git ]] || git clone https://github.com/free5gc/gtp5g /opt/ims-build/gtp5g
+              git -C /opt/ims-build/gtp5g checkout d8818ee80a9a004ea0fac3715415395810666921
+              make -C /opt/ims-build/gtp5g -j2 CC=gcc-12
+              make -C /opt/ims-build/gtp5g install CC=gcc-12
+              depmod -a
+            fi
+            if [[ "$role" == edge ]]; then
+              modprobe gtp5g
+              printf 'gtp5g\n' > /etc/modules-load.d/ims-gtp5g.conf
+              modinfo gtp5g | sed -n '1,8p'
+            fi
+            if [[ ! -x /opt/cni/bin/ipvlan || ! -x /opt/cni/bin/static ]]; then
+              apt-get install -y containernetworking-plugins
+              install -d /opt/cni/bin
+              for plugin in ipvlan static; do [[ -x /opt/cni/bin/$plugin ]] || install -m 0755 /usr/lib/cni/$plugin /opt/cni/bin/$plugin; done
+            fi
+            for plugin in ipvlan static; do test -x "/opt/cni/bin/$plugin"; done
+            install -d /var/lib/ims-bootstrap
+            printf '%s\n' "$fingerprint" > "$stamp"
+            printf 'Worker prerequisites ready: %s\n' "$role"
+        - path: /usr/local/sbin/check-fixed-eni-order.py
+          permissions: '0755'
+          content: |
+            #!/usr/bin/env python3
+            import pathlib,urllib.request
+            base='http://169.254.169.254/latest/'
+            req=urllib.request.Request(base+'api/token',method='PUT',headers={'X-aws-ec2-metadata-token-ttl-seconds':'60'})
+            with urllib.request.urlopen(req,timeout=3) as r:token=r.read().decode()
+            def get(path):
+             req=urllib.request.Request(base+'meta-data/network/interfaces/macs/'+path,headers={'X-aws-ec2-metadata-token':token})
+             with urllib.request.urlopen(req,timeout=3) as r:return r.read().decode().strip()
+            expected={0: ('ens5', '@{edge-primary-eni}'), 1: ('ens6', '@{edge-n2-eni}'), 2: ('ens7', '@{edge-n4-eni}'), 3: ('ens8', '@{edge-n3-eni}'), 4: ('ens9', '@{edge-n6-eni}')}
+            observed={}
+            for p in pathlib.Path('/sys/class/net').iterdir():
+             if not p.name.startswith('ens'):continue
+             mac=(p/'address').read_text().strip()
+             index=int(get(mac+'/device-number'));observed[index]=(p.name,get(mac+'/interface-id'))
+            assert all(observed.get(k)==v for k,v in expected.items()),'ENI/device/interface order mismatch'
+            print('ENI_ORDER_READY')

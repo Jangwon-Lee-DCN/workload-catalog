@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: upf
+    app.kubernetes.io/instance: edge
+  name: upf
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: upf
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        k8s.v1.cni.cncf.io/networks: free5gc-upf-n3, free5gc-upf-n4, free5gc-upf-n6
+      labels:
+        app: upf
+    spec:
+      containers:
+        - command:
+            - sh
+            - /etc/ims-ue-https-egress/reconcile.sh
+          env:
+            - name: N6_GATEWAY
+              value: '@{n6-gateway}'
+          image: docker.io/free5gc/upf@sha256:b6b362a39fdd0c768cb15744366004f48c7d6a6f804d54e2e24a4e541b8d37c6
+          imagePullPolicy: IfNotPresent
+          name: ims-ue-https-egress
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - /etc/ims-ue-https-egress/reconcile.sh
+                - check
+            failureThreshold: 3
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /etc/ims-ue-https-egress
+              name: ims-ue-https-egress
+              readOnly: true
+        - command:
+            - ./upf
+            - -c
+            - /free5gc/config/upfcfg.yaml
+          image: docker.io/free5gc/upf@sha256:b6b362a39fdd0c768cb15744366004f48c7d6a6f804d54e2e24a4e541b8d37c6
+          imagePullPolicy: IfNotPresent
+          name: upf
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_MODULE
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /free5gc/config/upfcfg.yaml
+              name: upf-config
+              subPath: upfcfg.yaml
+        - name: ims-n6-egress
+          image: docker.io/free5gc/upf@sha256:b6b362a39fdd0c768cb15744366004f48c7d6a6f804d54e2e24a4e541b8d37c6
+          command:
+            - sh
+            - /ims-egress/reconcile.sh
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          volumeMounts:
+            - name: gpu-binding
+              mountPath: /gpu
+              readOnly: true
+            - name: ims-egress
+              mountPath: /ims-egress
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - command:
+            - sh
+            - -c
+            - |
+              grep -q gtp5g /host/proc/modules && echo "gtp5g module loaded OK" || \
+              (echo "ERROR: gtp5g kernel module not loaded on host."; \
+               echo "Run on edge worker: sudo modprobe gtp5g"; \
+               exit 1)
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          name: check-gtp5g
+          resources: {}
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /host/proc
+              name: host-proc
+              readOnly: true
+      nodeName: '@{edge-node-name}'
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: ims-ue-https-egress
+          name: ims-ue-https-egress
+        - configMap:
+            defaultMode: 420
+            name: upf-config
+          name: upf-config
+        - hostPath:
+            path: /proc
+            type: ''
+          name: host-proc
+        - name: gpu-binding
+          secret:
+            secretName: ims-generation-gpu
+            optional: true
+        - name: ims-egress
+          configMap:
+            name: ims-n6-egress
+      serviceAccountName: default

@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ims-ue-1-web
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  selector:
+    app: ims-ue-1
+  ports:
+    - port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ims-ue-2-web
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  selector:
+    app: ims-ue-2
+  ports:
+    - port: 8080
+      targetPort: http

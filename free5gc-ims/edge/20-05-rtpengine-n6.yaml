@@ -1,0 +1,9 @@
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: ims-rtpengine-n6
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+spec:
+  config: '{"cniVersion": "0.3.1", "name": "ims-rtpengine-n6", "type": "ipvlan", "master": "@{n6-master}", "mode": "l2", "ipam": {"type": "static", "addresses": [{"address": "@{rtpengine-ip}/24"}], "routes": [{"dst": "@{ue-cidr}", "gw": "@{upf-n6-ip}"}, {"dst": "@{core-worker-ip}/32", "gw": "@{n6-gateway}"}]}}'

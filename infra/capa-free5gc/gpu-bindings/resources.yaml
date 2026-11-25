@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+rules:
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - awsmachines
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+subjects:
+- kind: ServiceAccount
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ims-gpu-bindings
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+data:
+  bind.py: |
+    """Publish only the GPU API address and its runtime token to Edge."""
+    import base64,ipaddress,json,os,pathlib,ssl,tempfile,time,urllib.error,urllib.request,urllib.parse,yaml
+
+    class Api:
+        def __init__(self,path,directory,name):
+            config=yaml.safe_load(pathlib.Path(path).read_text())
+            selected=next(x['context'] for x in config['contexts'] if x['name']==config['current-context'])
+            cluster=next(x['cluster'] for x in config['clusters'] if x['name']==selected['cluster'])
+            user=next(x['user'] for x in config['users'] if x['name']==selected['user'])
+            self.server=cluster['server'].rstrip('/')
+            self.context=ssl.create_default_context(cadata=base64.b64decode(cluster['certificate-authority-data']).decode())
+            cert=pathlib.Path(directory)/(name+'.crt');key=pathlib.Path(directory)/(name+'.key')
+            cert.write_bytes(base64.b64decode(user['client-certificate-data']));key.write_bytes(base64.b64decode(user['client-key-data']))
+            self.context.load_cert_chain(cert,key);self.token=None
+        def request(self,method,path,body=None):
+            headers={'Content-Type':'application/json'}
+            if self.token:headers['Authorization']='Bearer '+pathlib.Path(self.token).read_text().strip()
+            req=urllib.request.Request(self.server+path,data=None if body is None else json.dumps(body).encode(),method=method,headers=headers)
+            with urllib.request.urlopen(req,context=self.context,timeout=15) as response:return json.load(response)
+
+    def management():
+        root=pathlib.Path('/var/run/secrets/kubernetes.io/serviceaccount');client=object.__new__(Api)
+        client.server='https://'+os.environ['KUBERNETES_SERVICE_HOST']+':'+os.environ.get('KUBERNETES_SERVICE_PORT','443')
+        client.context=ssl.create_default_context(cafile=str(root/'ca.crt'));client.token=root/'token';return client
+
+    def main():
+        os.umask(0o077);ready=pathlib.Path('/work/ready')
+        while True:
+            try:
+                with tempfile.TemporaryDirectory(dir='/work') as directory:
+                    gpu=Api('/gpu-kubeconfig/value',directory,'gpu');edge=Api('/edge-kubeconfig/value',directory,'edge')
+                    deploy=gpu.request('GET','/apis/apps/v1/namespaces/voice-system/deployments/voice-gpu-api')
+                    if deploy.get('status',{}).get('availableReplicas',0)<1:raise ValueError('GPU API is not ready')
+                    secret=gpu.request('GET','/api/v1/namespaces/voice-system/secrets/voice-gpu-api-secrets')
+                    token=secret['data']['SERVICE_TOKEN'];assert len(base64.b64decode(token))>=24
+                    selector=urllib.parse.quote('cluster.x-k8s.io/cluster-name='+os.environ['GPU_CLUSTER_NAME'],safe='')
+                    machines=management().request('GET','/apis/infrastructure.cluster.x-k8s.io/v1beta2/namespaces/'+os.environ['MANAGEMENT_NAMESPACE']+'/awsmachines?labelSelector='+selector)['items']
+                    assert len(machines)==1,'Expected one GPU node'
+                    ips=[a['address'] for a in machines[0].get('status',{}).get('addresses',[]) if a['type']=='ExternalIP']
+                    assert len(ips)==1 and ipaddress.ip_address(ips[0]).is_global,'GPU requires a public IP'
+                    values={'gpu-api':base64.b64encode(('http://'+ips[0]+':8090').encode()).decode(),'gpu-ip':base64.b64encode(ips[0].encode()).decode(),'gpu-token':token}
+                    for namespace in os.environ['EDGE_NAMESPACES'].split(','):
+                        try:edge.request('GET','/api/v1/namespaces/'+namespace)
+                        except urllib.error.HTTPError as error:
+                            if error.code!=404:raise
+                            edge.request('POST','/api/v1/namespaces',{'apiVersion':'v1','kind':'Namespace','metadata':{'name':namespace}})
+                        collection='/api/v1/namespaces/'+namespace+'/secrets';path=collection+'/ims-generation-gpu'
+                        try:current=edge.request('GET',path)
+                        except urllib.error.HTTPError as error:
+                            if error.code!=404:raise
+                            edge.request('POST',collection,{'apiVersion':'v1','kind':'Secret','metadata':{'name':'ims-generation-gpu','namespace':namespace},'type':'Opaque','data':values})
+                        else:
+                            if current.get('data')!=values:
+                                current['data']=values;edge.request('PUT',path,current)
+                    if not ready.exists():print('GPU_EDGE_BINDINGS_READY',flush=True)
+                    ready.touch()
+            except (urllib.error.URLError,OSError,ValueError,AssertionError,KeyError,StopIteration) as error:
+                ready.unlink(missing_ok=True);print('Waiting for GPU API and Edge: '+type(error).__name__,flush=True)
+            time.sleep(15)
+
+    if __name__=='__main__':main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ims-gpu-bindings
+  namespace: '@{namespace}'
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 3600
+  selector:
+    matchLabels:
+      app: ims-gpu-bindings
+  template:
+    metadata:
+      labels:
+        app: ims-gpu-bindings
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - name: bind
+        image: '@{image-tools}'
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /bootstrap/bind.py
+        env:
+        - name: EDGE_NAMESPACES
+          value: '@{edge-namespaces}'
+        - name: GPU_CLUSTER_NAME
+          value: '@{gpu-cluster-name}'
+        - name: MANAGEMENT_NAMESPACE
+          value: '@{namespace}'
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /work/ready
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
+        volumeMounts:
+        - name: code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: gpu
+          mountPath: /gpu-kubeconfig
+          readOnly: true
+        - name: edge
+          mountPath: /edge-kubeconfig
+          readOnly: true
+        - name: work
+          mountPath: /work
+      volumes:
+      - name: code
+        configMap:
+          name: ims-gpu-bindings
+      - name: gpu
+        secret:
+          secretName: '@{gpu-cluster-name}-kubeconfig'
+          defaultMode: 256
+          items:
+          - key: value
+            path: value
+      - name: edge
+        secret:
+          secretName: '@{edge-cluster-name}-kubeconfig'
+          defaultMode: 256
+          items:
+          - key: value
+            path: value
+      - name: work
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+      serviceAccountName: ims-gpu-bindings

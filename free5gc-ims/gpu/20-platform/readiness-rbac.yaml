@@ -1,0 +1,155 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-readiness
+  namespace: gpu-cr-system
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  resourceNames:
+  - voice-installation-reference
+  verbs:
+  - get
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  resourceNames:
+  - voice-private-inputs
+  - gpu-cr-node-agent
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-readiness
+  namespace: gpu-cr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-readiness
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-readiness
+  namespace: qwen-tts-lab
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  resourceNames:
+  - voice-model-download
+  - voice-env-setup
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-readiness
+  namespace: qwen-tts-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-readiness
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-readiness
+  namespace: voice-system
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  resourceNames:
+  - voice-stt-model
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-readiness
+  namespace: voice-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-readiness
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-readiness
+  namespace: kube-system
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  resourceNames:
+  - nvidia-device-plugin-daemonset
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-readiness
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-readiness
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-platform-readiness
+  namespace: knative-serving
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  resourceNames:
+  - controller
+  - webhook
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-platform-readiness
+  namespace: knative-serving
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-readiness
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system

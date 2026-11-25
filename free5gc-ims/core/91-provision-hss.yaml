@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ims-provision-hss
+  namespace: ims-lab
+  annotations:
+    config.kubernetes.io/depends-on: /namespaces/ims-lab/Pod/ims-pyhss
+    argocd.argoproj.io/sync-wave: '5'
+spec:
+  backoffLimit: 12
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: provision
+          image: '@{image-tools}'
+          command:
+            - python3
+            - /bootstrap/provision.py
+          volumeMounts:
+            - name: code
+              mountPath: /bootstrap
+              readOnly: true
+            - name: users
+              mountPath: /users
+              readOnly: true
+            - name: hss
+              mountPath: /hss
+              readOnly: true
+          imagePullPolicy: IfNotPresent
+      volumes:
+        - name: code
+          configMap:
+            name: ims-hss-provision
+        - name: users
+          secret:
+            secretName: ims-subscriber-users
+        - name: hss
+          secret:
+            secretName: ims-pyhss-config
+      nodeSelector:
+        kubernetes.io/hostname: '@{core-node-name}'

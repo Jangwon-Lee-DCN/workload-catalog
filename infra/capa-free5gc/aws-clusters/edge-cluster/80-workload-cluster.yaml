@@ -1,0 +1,11 @@
+apiVersion: infra.nephio.org/v1alpha1
+kind: WorkloadCluster
+metadata:
+  name: '@{edge-cluster-name}'
+  namespace: default
+spec:
+  clusterName: '@{edge-cluster-name}'
+  cnis:
+    - ipvlan
+    - macvlan
+  masterInterface: ens5

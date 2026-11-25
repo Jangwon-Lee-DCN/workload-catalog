@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voice-model-bootstrap
+  namespace: gpu-cr-system
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 18000
+  template:
+    spec:
+      serviceAccountName: gpu-install
+      restartPolicy: Never
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: prepare
+        image: docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /bootstrap/bootstrap.py
+        - capture
+        volumeMounts:
+        - name: code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: checkpoints
+          mountPath: /var/lib/gcr-checkpoint
+        - name: samples
+          mountPath: /samples
+          readOnly: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: '4'
+            memory: 1Gi
+      volumes:
+      - name: code
+        configMap:
+          name: gpu-install-code
+      - name: checkpoints
+        hostPath:
+          path: /var/lib/gcr-checkpoint
+          type: Directory
+      - name: samples
+        hostPath:
+          path: /var/lib/qwen-tts-lab
+          type: Directory

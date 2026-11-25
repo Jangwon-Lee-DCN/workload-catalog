@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ims-hss-provision
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+data:
+  provision.py: |2
+
+    import json,sys,urllib.request,yaml
+    users=json.load(open('/users/subscribers.json'))
+    c=yaml.safe_load(open('/hss/config.yaml'))
+    def request(method,path,data=None):
+     req=urllib.request.Request('http://@{core-worker-ip}:8080/'+path,data=json.dumps(data).encode() if data is not None else None,method=method,headers={'Content-Type':'application/json','Provisioning-Key':c['hss']['provisioning_key']})
+     with urllib.request.urlopen(req,timeout=20) as r:return json.load(r)
+    def find_or_create(resource,match,data,idfield):
+     rows=request('GET',resource+'/list?page_size=100&page=0')
+     if isinstance(rows,dict):rows=rows.get('items',rows.get('data',list(rows.values())))
+     for row in rows:
+      if isinstance(row,dict) and all(row.get(a)==b for a,b in match.items()):return row
+     return request('PUT',resource+'/',data)
+    apn=find_or_create('apn',{'apn':'internet'},{'apn':'internet','apn_ambr_dl':100000000,'apn_ambr_ul':100000000,'qci':9,'arp_priority':8,'arp_preemption_capability':False,'arp_preemption_vulnerability':False},'apn_id')
+    for u in users:
+     auc=find_or_create('auc',{'imsi':u['imsi']},{'imsi':u['imsi'],'ki':u['key'],'opc':u['opc'],'amf':'8000','sqn':0},'auc_id')
+     sub=find_or_create('subscriber',{'imsi':u['imsi']},{'imsi':u['imsi'],'enabled':True,'auc_id':auc['auc_id'],'default_apn':apn['apn_id'],'apn_list':str(apn['apn_id']),'msisdn':u['msisdn']},'subscriber_id')
+     ims=find_or_create('ims_subscriber',{'imsi':u['imsi']},{'imsi':u['imsi'],'msisdn':u['msisdn'],'ifc_path':'default_ifc.xml'},'ims_subscriber_id')
+     if ims.get('ifc_path')!='default_ifc.xml':request('PATCH','ims_subscriber/'+str(ims['ims_subscriber_id']),{'ifc_path':'default_ifc.xml'})
+     print(json.dumps({'imsi':u['imsi'],'msisdn':u['msisdn'],'auc_id':auc['auc_id'],'subscriber_id':sub['subscriber_id'],'ims_subscriber_id':ims['ims_subscriber_id']}))

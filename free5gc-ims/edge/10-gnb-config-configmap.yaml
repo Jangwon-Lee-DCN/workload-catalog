@@ -1,0 +1,27 @@
+apiVersion: v1
+data:
+  gnb.yaml: |
+    mcc: '001'  # kpt-set: ${plmn-mcc}
+    mnc: '01'   # kpt-set: ${plmn-mnc}
+    nci: '0x000000010'
+    idLength: 32
+    tac: 1  # kpt-set: ${tac}
+    cellBarred: false
+    linkIp: @{gnb-n2-ip}  # kpt-set: ${gnb-n2-ip}
+    ngapIp: @{gnb-n2-ip}  # kpt-set: ${gnb-n2-ip}
+    gtpIp: @{gnb-n3-ip}   # kpt-set: ${gnb-n3-ip}
+    amfConfigs:
+      - address: @{amf-n2-ip}  # kpt-set: ${amf-n2-ip}
+        port: 38412
+    slices:
+      - sst: 1
+        sd: '010203'
+    ignoreStreamIds: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: edge
+  name: gnb-config
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'

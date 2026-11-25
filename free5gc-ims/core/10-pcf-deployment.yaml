@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: pcf
+    app.kubernetes.io/instance: core
+  name: pcf
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: pcf
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pcf
+    spec:
+      containers:
+        - command:
+            - /free5gc/pcf
+            - -c
+            - /free5gc/config/pcfcfg.yaml
+          image: docker.io/free5gc/pcf@sha256:f712e8ecd927928698e180abd04a6777edd5bd968900dc431f5644f58ade0332
+          imagePullPolicy: IfNotPresent
+          name: pcf
+          ports:
+            - containerPort: 8000
+              name: sbi
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /free5gc/config/pcfcfg.yaml
+              name: config
+              subPath: pcfcfg.yaml
+          workingDir: /free5gc
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - command:
+            - sh
+            - -c
+            - |
+              until nc -zw3 nrf-service.free5gc.svc.cluster.local 8000; do
+                echo waiting for nrf
+                sleep 2
+              done
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          name: wait-nrf
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: pcf-config
+          name: config

@@ -1,0 +1,10 @@
+apiVersion: kpt.dev/v1
+kind: Kptfile
+metadata:
+  name: workload-repository
+info:
+  description: Register telephone demo blueprints with Porch.
+pipeline:
+  mutators:
+  - image: ghcr.io/kptdev/krm-functions-catalog/starlark@sha256:c347e28606fa1a608e8e02e03541a5a46e4a0152005df4a11e44f6c4ab1edd9a
+    configPath: setters.yaml

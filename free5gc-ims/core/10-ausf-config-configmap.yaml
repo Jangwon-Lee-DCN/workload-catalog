@@ -1,0 +1,34 @@
+apiVersion: v1
+data:
+  ausfcfg.yaml: |
+    info:
+      version: 1.0.3
+      description: AUSF initial local configuration
+    configuration:
+      sbi:
+        scheme: https
+        registerIPv4: ausf-service
+        bindingIPv4: 0.0.0.0
+        port: 8000
+        tls:
+          key: cert/ausf.key
+          pem: cert/ausf.pem
+      serviceNameList:
+        - nausf-auth
+      nrfUri: https://nrf-service:8000 # kpt-set: ${nrf-service-name}
+      plmnSupportList:
+        - mcc: "001" # kpt-set: ${plmn-mcc}
+          mnc: "01"  # kpt-set: ${plmn-mnc}
+      groupId: ausfGroup001
+    logger:
+      enable: true
+      level: info
+      reportCaller: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: core
+  name: ausf-config
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'

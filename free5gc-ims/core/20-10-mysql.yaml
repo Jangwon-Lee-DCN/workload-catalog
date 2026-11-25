@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ims-mysql
+  namespace: ims-lab
+  labels:
+    app: ims-mysql
+    app.kubernetes.io/part-of: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: '@{core-node-name}'
+  hostAliases:
+    - ip: '@{core-worker-ip}'
+      hostnames:
+        - '@{ims-domain}'
+        - icscf.@{ims-domain}
+        - scscf.@{ims-domain}
+        - hss.@{ims-domain}
+    - ip: '@{pcscf-ip}'
+      hostnames:
+        - pcscf.@{ims-domain}
+  containers:
+    - name: ims-mysql
+      image: mysql:8.0.40
+      imagePullPolicy: IfNotPresent
+      command:
+        - docker-entrypoint.sh
+        - mysqld
+        - --bind-address=@{core-worker-ip}
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: '2'
+          memory: 2Gi
+      volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+      env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ims-db-auth
+              key: root-password
+        - name: MYSQL_ROOT_HOST
+          value: '%'
+      readinessProbe:
+        tcpSocket:
+          host: '@{core-worker-ip}'
+          port: 3306
+        initialDelaySeconds: 10
+        periodSeconds: 5
+  dnsPolicy: None
+  dnsConfig:
+    nameservers:
+      - '@{core-worker-ip}'
+    options:
+      - name: ndots
+        value: '1'
+  volumes:
+    - name: data
+      hostPath:
+        path: /var/lib/ims-lab/mysql
+        type: DirectoryOrCreate
+  hostNetwork: true

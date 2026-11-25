@@ -1,0 +1,42 @@
+apiVersion: v1
+data:
+  uerouting.yaml: |
+    info:
+      version: 1.0.7
+      description: UE routing initial local configuration
+
+    userplaneInformation:
+      upNodes:
+        gNB:
+          type: AN
+        UPF:
+          type: UPF
+          nodeID: @{upf-n4-ip} # kpt-set: ${upf-n4-ip}
+          addr: @{upf-n4-ip}   # kpt-set: ${upf-n4-ip}
+          sNssaiUpfInfos:
+            - sNssai:
+                sst: 1          # kpt-set: ${sst}
+                sd: "010203"    # kpt-set: ${sd}
+              dnnUpfInfoList:
+                - dnn: internet # kpt-set: ${dnn}
+                  pools:
+                    - cidr: @{ue-cidr} # kpt-set: ${ue-subnet}
+          interfaces:
+            - interfaceType: N3
+              endpoints:
+                - @{upf-n3-ip} # kpt-set: ${upf-n3-ip}
+              networkInstances:
+                - internet # kpt-set: ${dnn}
+      links:
+        - A: gNB
+          B: UPF
+kind: ConfigMap
+metadata:
+  labels:
+    app: smf
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/part-of: free5gc-cp
+  name: uerouting-config
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'

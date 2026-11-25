@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ims-observer
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-12'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ims-observer-pods
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ims-observer-pods
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+subjects:
+  - kind: ServiceAccount
+    name: ims-observer
+    namespace: ims-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ims-observer-pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ims-observer-pods
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ims-observer-pods
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'
+subjects:
+  - kind: ServiceAccount
+    name: ims-observer
+    namespace: ims-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ims-observer-pods
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ims-mec
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  selector:
+    app: ims-mec
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ims-observer
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  selector:
+    app: ims-observer
+  ports:
+    - name: http
+      port: 8085
+      targetPort: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ims-observer
+  namespace: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 3600
+  selector:
+    matchLabels:
+      app: ims-observer
+  template:
+    metadata:
+      labels:
+        app: ims-observer
+    spec:
+      serviceAccountName: ims-observer
+      nodeSelector:
+        kubernetes.io/hostname: '@{edge-node-name}'
+      containers:
+        - name: observer
+          image: '@{image-tools}'
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /observer/server.py
+          ports:
+            - containerPort: 8085
+          env:
+            - name: CORE_API
+              valueFrom:
+                secretKeyRef:
+                  name: ims-observer-core
+                  key: server
+            - name: GPU_API_FILE
+              value: /gpu/gpu-api
+            - name: GPU_API
+              valueFrom:
+                secretKeyRef:
+                  name: ims-generation-gpu
+                  key: gpu-api
+          volumeMounts:
+            - name: code
+              mountPath: /observer
+              readOnly: true
+            - name: core
+              mountPath: /core
+              readOnly: true
+            - name: gpu
+              mountPath: /gpu
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: '1'
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            periodSeconds: 3
+      volumes:
+        - name: code
+          configMap:
+            name: ims-observer-code
+        - name: core
+          secret:
+            secretName: ims-observer-core
+            defaultMode: 256
+        - name: gpu
+          secret:
+            secretName: ims-generation-gpu
+            items:
+              - key: gpu-token
+                path: gpu-token
+              - key: gpu-api
+                path: gpu-api
+            defaultMode: 256

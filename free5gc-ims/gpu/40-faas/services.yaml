@@ -1,0 +1,950 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-service-template
+  namespace: sasv-restore-lab
+data:
+  service.json: |
+    {
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "sasv-restored",
+        "namespace": "sasv-restore-lab"
+      },
+      "spec": {
+        "template": {
+          "metadata": {
+            "annotations": {
+              "autoscaling.knative.dev/initial-scale": "0",
+              "autoscaling.knative.dev/max-scale": "2",
+              "autoscaling.knative.dev/min-scale": "0",
+              "autoscaling.knative.dev/scale-down-delay": "0s",
+              "autoscaling.knative.dev/target": "1",
+              "autoscaling.knative.dev/target-burst-capacity": "-1",
+              "autoscaling.knative.dev/target-utilization-percentage": "100",
+              "autoscaling.knative.dev/window": "6s",
+              "gpu-cr.io/checkpoint-mode": "direct-cache",
+              "gpu-cr.io/checkpoint-uri": "file:///var/lib/gpu-cr/cache/sasv.tar",
+              "gpu-cr.io/checkpoint-workspace": "prepared",
+              "gpu-cr.io/data-mode": "prepared-pod",
+              "gpu-cr.io/data-uri": "hostpath:///var/lib/gcr-checkpoint/bootstrap-detector.blob",
+              "gpu-cr.io/restore": "true",
+              "gpu-cr.io/restore-hugepages": "true",
+              "gpu-cr.io/source-pod-uid": "00000000-0000-4000-8000-000000000001",
+              "gpu-cr.io/target-container": "sasv-api",
+              "voice-service.io/observation-contract": "d7fb8243822e35235f914f4a8de3074acd02839979cda9e64a501fc6be5c0519",
+              "autoscaling.knative.dev/scale-to-zero-pod-retention-period": "0s"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containerConcurrency": 1,
+            "containers": [
+              {
+                "args": [
+                  "cp -R /seed/. /cache/torch/; export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so:/runtime-allocator/libjemalloc.so.2; exec /app/api-server"
+                ],
+                "command": [
+                  "sh",
+                  "-ec"
+                ],
+                "env": [
+                  {
+                    "name": "GUARD_PORT",
+                    "value": "8080"
+                  },
+                  {
+                    "name": "BACKEND_PORT",
+                    "value": "5433"
+                  },
+                  {
+                    "name": "INFERENCE_TIMEOUT",
+                    "value": "120"
+                  },
+                  {
+                    "name": "WARMUP_TIMEOUT",
+                    "value": "300"
+                  },
+                  {
+                    "name": "QUEUE_SIZE",
+                    "value": "1"
+                  },
+                  {
+                    "name": "QUEUE_TIMEOUT",
+                    "value": "120"
+                  },
+                  {
+                    "name": "MAX_BODY",
+                    "value": "2097152"
+                  },
+                  {
+                    "name": "TORCH_HOME",
+                    "value": "/cache/torch"
+                  },
+                  {
+                    "name": "PYTHONDONTWRITEBYTECODE",
+                    "value": "1"
+                  },
+                  {
+                    "name": "NUMBA_CACHE_DIR",
+                    "value": "/runtime-cache"
+                  },
+                  {
+                    "name": "NUMBA_DEBUG_CACHE",
+                    "value": "1"
+                  },
+                  {
+                    "name": "PYTHONPATH",
+                    "value": "/simd-libs"
+                  },
+                  {
+                    "name": "MALLOC_CONF",
+                    "value": "thp:always,abort_conf:true,dirty_decay_ms:-1,muzzy_decay_ms:-1"
+                  },
+                  {
+                    "name": "GCR_VMM_ALLOC",
+                    "value": "1"
+                  },
+                  {
+                    "name": "GCR_POD_UID",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GCR_CONTROL_DIR",
+                    "value": "/var/lib/gpu-cr/run"
+                  },
+                  {
+                    "name": "GCR_DATA_DIR",
+                    "value": "/var/lib/gcr-data"
+                  }
+                ],
+                "envFrom": [
+                  {
+                    "secretRef": {
+                      "name": "sasv-runtime-env"
+                    }
+                  }
+                ],
+                "image": "localhost/sasv-api-secure:baseline",
+                "imagePullPolicy": "Never",
+                "name": "sasv-api",
+                "resources": {
+                  "limits": {
+                    "cpu": "8",
+                    "memory": "24Gi",
+                    "nvidia.com/gpu": "1"
+                  },
+                  "requests": {
+                    "cpu": "4",
+                    "memory": "16Gi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  },
+                  "runAsGroup": 10001,
+                  "runAsNonRoot": true,
+                  "runAsUser": 10001,
+                  "seccompProfile": {
+                    "type": "RuntimeDefault"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/base64.py",
+                    "name": "base64-test",
+                    "readOnly": true,
+                    "subPath": "base64.py"
+                  },
+                  {
+                    "mountPath": "/simd-libs",
+                    "name": "simd-libs",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/runtime-allocator",
+                    "name": "allocator-input",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/seed",
+                    "name": "torch-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/site-packages/torch/hub.py",
+                    "name": "offline-vad",
+                    "readOnly": true,
+                    "subPath": "hub.py"
+                  },
+                  {
+                    "mountPath": "/runtime-cache",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "runtime-cache/numba-3a07eb16e74e"
+                  },
+                  {
+                    "mountPath": "/cache/torch",
+                    "name": "torch-cache"
+                  },
+                  {
+                    "mountPath": "/etc/machine-id",
+                    "name": "machine-id",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/pretrained",
+                    "name": "pretrained",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/opt/license",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "license"
+                  },
+                  {
+                    "mountPath": "/app/security",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "security"
+                  },
+                  {
+                    "mountPath": "/app/uploads",
+                    "name": "private-uploads",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/app/speaker_embs",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "speaker_embs"
+                  },
+                  {
+                    "mountPath": "/app/enroll_tmp",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "enroll_tmp"
+                  },
+                  {
+                    "mountPath": "/app/archive",
+                    "name": "data",
+                    "readOnly": true,
+                    "subPath": "archive"
+                  },
+                  {
+                    "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/site-packages/torch/serialization.py",
+                    "name": "checkpoint-mmap",
+                    "readOnly": true,
+                    "subPath": "serialization.py"
+                  },
+                  {
+                    "mountPath": "/opt/conda/envs/fairseq/lib/python3.9/json/__init__.py",
+                    "name": "json-parser-input",
+                    "readOnly": true,
+                    "subPath": "json-init.py"
+                  },
+                  {
+                    "mountPath": "/tmp",
+                    "name": "checkpoint-tmp"
+                  },
+                  {
+                    "mountPath": "/opt/gpu-cr",
+                    "name": "gcr-lib",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/var/lib/gpu-cr/run",
+                    "name": "gcr-run"
+                  },
+                  {
+                    "mountPath": "/var/lib/gcr-data",
+                    "name": "gcr-data"
+                  }
+                ],
+                "workingDir": "/app"
+              },
+              {
+                "command": [
+                  "python3",
+                  "/voice-observe/guard.py"
+                ],
+                "env": [
+                  {
+                    "name": "SOURCE_UID",
+                    "value": "00000000-0000-4000-8000-000000000001"
+                  },
+                  {
+                    "name": "NVIDIA_VISIBLE_DEVICES",
+                    "value": "void"
+                  },
+                  {
+                    "name": "UPSTREAM_PORT",
+                    "value": "5433"
+                  }
+                ],
+                "image": "docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
+                "name": "restore-guard",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http1",
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "periodSeconds": 1,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/guard",
+                    "name": "restore-guard",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/restore-run",
+                    "name": "gcr-run",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/voice-observe",
+                    "name": "voice-observe",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "enableServiceLinks": false,
+            "initContainers": [
+              {
+                "command": [
+                  "sh",
+                  "-ec",
+                  "cp -RL /config-seed/base64-test/. /config-live/base64-test/; cp -RL /config-seed/simd-libs/. /config-live/simd-libs/; cp -RL /config-seed/offline-vad/. /config-live/offline-vad/; cp -RL /config-seed/allocator-input/. /config-live/allocator-input/; cp -RL /config-seed/checkpoint-mmap/. /config-live/checkpoint-mmap/; cp -RL /config-seed/json-parser-input/. /config-live/json-parser-input/; mkdir -p /run-root/$POD_UID /data-root/$POD_UID /app-tmp/gpu-lock; touch /run-root/$POD_UID/control; chown 10001:10001 /run-root/$POD_UID /run-root/$POD_UID/control /data-root/$POD_UID; chmod 600 /run-root/$POD_UID/control; mkdir -p /run-root/00000000-0000-4000-8000-000000000001 /data-root/00000000-0000-4000-8000-000000000001; printf 0 > /run-root/00000000-0000-4000-8000-000000000001/control; cp /blob-seed/data.blob /data-root/00000000-0000-4000-8000-000000000001/data.blob; chown -R 10001:10001 /run-root/00000000-0000-4000-8000-000000000001 /data-root/00000000-0000-4000-8000-000000000001; chmod 600 /run-root/00000000-0000-4000-8000-000000000001/control /data-root/00000000-0000-4000-8000-000000000001/data.blob; true"
+                ],
+                "env": [
+                  {
+                    "name": "POD_UID",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "NVIDIA_VISIBLE_DEVICES",
+                    "value": "void"
+                  }
+                ],
+                "image": "docker.io/library/ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55",
+                "name": "prepare-gcr-dirs",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/run-root",
+                    "name": "gcr-run"
+                  },
+                  {
+                    "mountPath": "/data-root",
+                    "name": "gcr-data"
+                  },
+                  {
+                    "mountPath": "/app-tmp",
+                    "name": "checkpoint-tmp"
+                  },
+                  {
+                    "mountPath": "/config-seed/base64-test",
+                    "name": "base64-test-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/base64-test",
+                    "name": "base64-test"
+                  },
+                  {
+                    "mountPath": "/config-seed/simd-libs",
+                    "name": "simd-libs-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/simd-libs",
+                    "name": "simd-libs"
+                  },
+                  {
+                    "mountPath": "/config-seed/offline-vad",
+                    "name": "offline-vad-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/offline-vad",
+                    "name": "offline-vad"
+                  },
+                  {
+                    "mountPath": "/config-seed/allocator-input",
+                    "name": "allocator-input-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/allocator-input",
+                    "name": "allocator-input"
+                  },
+                  {
+                    "mountPath": "/config-seed/checkpoint-mmap",
+                    "name": "checkpoint-mmap-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/checkpoint-mmap",
+                    "name": "checkpoint-mmap"
+                  },
+                  {
+                    "mountPath": "/config-seed/json-parser-input",
+                    "name": "json-parser-input-seed",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/config-live/json-parser-input",
+                    "name": "json-parser-input"
+                  },
+                  {
+                    "mountPath": "/blob-seed",
+                    "name": "gpu-blob-seed",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "responseStartTimeoutSeconds": 30,
+            "securityContext": {
+              "fsGroup": 10001
+            },
+            "timeoutSeconds": 30,
+            "volumes": [
+              {
+                "emptyDir": {},
+                "name": "base64-test"
+              },
+              {
+                "emptyDir": {},
+                "name": "simd-libs"
+              },
+              {
+                "emptyDir": {},
+                "name": "offline-vad"
+              },
+              {
+                "hostPath": {
+                  "path": "/opt/sasv-client-api/cache/torch-seed",
+                  "type": "Directory"
+                },
+                "name": "torch-seed"
+              },
+              {
+                "emptyDir": {
+                  "sizeLimit": "256Mi"
+                },
+                "name": "torch-cache"
+              },
+              {
+                "hostPath": {
+                  "path": "/opt/sasv-client-api/machine-id",
+                  "type": "File"
+                },
+                "name": "machine-id"
+              },
+              {
+                "hostPath": {
+                  "path": "/opt/sasv-client-api/pretrained",
+                  "type": "Directory"
+                },
+                "name": "pretrained"
+              },
+              {
+                "hostPath": {
+                  "path": "/opt/sasv-client-api/DATA",
+                  "type": "Directory"
+                },
+                "name": "data"
+              },
+              {
+                "emptyDir": {},
+                "name": "allocator-input"
+              },
+              {
+                "emptyDir": {},
+                "name": "checkpoint-mmap"
+              },
+              {
+                "emptyDir": {},
+                "name": "json-parser-input"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory",
+                  "sizeLimit": "6Gi"
+                },
+                "name": "checkpoint-tmp"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/gpu-cr/lib",
+                  "type": "Directory"
+                },
+                "name": "gcr-lib"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory"
+                },
+                "name": "gcr-run"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory"
+                },
+                "name": "gcr-data"
+              },
+              {
+                "configMap": {
+                  "name": "sasv-simd-80dd96a82381"
+                },
+                "name": "base64-test-seed"
+              },
+              {
+                "name": "simd-libs-seed",
+                "hostPath": {
+                  "path": "/opt/voice-runtime/simd-libs-seed",
+                  "type": "Directory"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "sasv-offline-vad-cc5d755ea5e9"
+                },
+                "name": "offline-vad-seed"
+              },
+              {
+                "name": "allocator-input-seed",
+                "hostPath": {
+                  "path": "/opt/voice-runtime/allocator-input-seed",
+                  "type": "Directory"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "sasv-mmap-65b7c6886c00"
+                },
+                "name": "checkpoint-mmap-seed"
+              },
+              {
+                "name": "json-parser-input-seed",
+                "hostPath": {
+                  "path": "/opt/voice-runtime/json-parser-input-seed",
+                  "type": "Directory"
+                }
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/gpu-cr/pinned-gpu/aisrc",
+                  "type": "Directory"
+                },
+                "name": "gpu-blob-seed"
+              },
+              {
+                "configMap": {
+                  "name": "restore-guard"
+                },
+                "name": "restore-guard"
+              },
+              {
+                "emptyDir": {},
+                "name": "private-uploads"
+              },
+              {
+                "configMap": {
+                  "name": "voice-observe-d7fb8243822e"
+                },
+                "name": "voice-observe"
+              }
+            ],
+            "tolerations": [
+              {
+                "key": "node-role.kubernetes.io/control-plane",
+                "operator": "Exists",
+                "effect": "NoSchedule"
+              }
+            ]
+          }
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-service-template
+  namespace: qwen-tts-lab
+data:
+  service.json: |
+    {
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "voice-ims-fast",
+        "namespace": "qwen-tts-lab"
+      },
+      "spec": {
+        "template": {
+          "metadata": {
+            "annotations": {
+              "autoscaling.knative.dev/initial-scale": "0",
+              "autoscaling.knative.dev/max-scale": "1",
+              "autoscaling.knative.dev/min-scale": "0",
+              "autoscaling.knative.dev/scale-down-delay": "20s",
+              "autoscaling.knative.dev/target": "1",
+              "autoscaling.knative.dev/target-utilization-percentage": "100",
+              "autoscaling.knative.dev/window": "6s",
+              "gpu-cr.io/checkpoint-mode": "direct-cache",
+              "gpu-cr.io/checkpoint-uri": "file:///var/lib/gpu-cr/cache/voice-app-base.tar",
+              "gpu-cr.io/checkpoint-workspace": "prepared",
+              "gpu-cr.io/data-mode": "prepared-pod",
+              "gpu-cr.io/data-uri": "hostpath:///var/lib/gcr-checkpoint/bootstrap-base.blob",
+              "gpu-cr.io/restore": "true",
+              "gpu-cr.io/restore-hugepages": "true",
+              "gpu-cr.io/source-pod-uid": "00000000-0000-4000-8000-000000000002",
+              "gpu-cr.io/target-container": "voice-api",
+              "voice-service.io/observation-contract": "d7fb8243822e35235f914f4a8de3074acd02839979cda9e64a501fc6be5c0519",
+              "autoscaling.knative.dev/target-burst-capacity": "-1"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containerConcurrency": 1,
+            "containers": [
+              {
+                "command": [
+                  "bash",
+                  "-ec",
+                  "export LD_PRELOAD=/opt/gpu-cr/libgcr-interceptor.so; exec /data/voice-env/bin/python /fast-model/fast_clone_server.py"
+                ],
+                "env": [
+                  {
+                    "name": "HF_HOME",
+                    "value": "/data/huggingface"
+                  },
+                  {
+                    "name": "HF_HUB_OFFLINE",
+                    "value": "1"
+                  },
+                  {
+                    "name": "OMP_NUM_THREADS",
+                    "value": "1"
+                  },
+                  {
+                    "name": "MKL_NUM_THREADS",
+                    "value": "1"
+                  },
+                  {
+                    "name": "GCR_VMM_ALLOC",
+                    "value": "1"
+                  },
+                  {
+                    "name": "GCR_CONTROL_DIR",
+                    "value": "/var/lib/gpu-cr/run"
+                  },
+                  {
+                    "name": "GCR_DATA_DIR",
+                    "value": "/var/lib/gcr-data"
+                  },
+                  {
+                    "name": "GCR_POD_UID",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "VOICE_SIZE",
+                    "value": "1.7B"
+                  },
+                  {
+                    "name": "VOICE_CPU_THREADS",
+                    "value": "1"
+                  },
+                  {
+                    "name": "VOICE_SOURCE_WARMUP",
+                    "value": "1"
+                  },
+                  {
+                    "name": "VOICE_CODEC_GRAPH",
+                    "value": "1"
+                  }
+                ],
+                "image": "docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "voice-api",
+                "resources": {
+                  "limits": {
+                    "cpu": "12",
+                    "memory": "40Gi",
+                    "nvidia.com/gpu": "1"
+                  },
+                  "requests": {
+                    "cpu": "4",
+                    "memory": "8Gi",
+                    "nvidia.com/gpu": "1"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/data",
+                    "name": "data",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/opt/gpu-cr",
+                    "name": "lib",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/var/lib/gpu-cr/run",
+                    "name": "run"
+                  },
+                  {
+                    "mountPath": "/var/lib/gcr-data",
+                    "name": "blob"
+                  },
+                  {
+                    "mountPath": "/tmp",
+                    "name": "tmp"
+                  },
+                  {
+                    "mountPath": "/dev/shm",
+                    "name": "shm"
+                  },
+                  {
+                    "mountPath": "/fast-model",
+                    "name": "fast-model-code",
+                    "readOnly": true
+                  }
+                ]
+              },
+              {
+                "command": [
+                  "python3",
+                  "/voice-observe/guard.py"
+                ],
+                "env": [
+                  {
+                    "name": "SOURCE_UID",
+                    "value": "00000000-0000-4000-8000-000000000002"
+                  },
+                  {
+                    "name": "NVIDIA_VISIBLE_DEVICES",
+                    "value": "void"
+                  },
+                  {
+                    "name": "UPSTREAM_PORT",
+                    "value": "8000"
+                  }
+                ],
+                "image": "docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe",
+                "name": "guard",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http1",
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "periodSeconds": 1,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "256Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/restore-run",
+                    "name": "run",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/voice-observe",
+                    "name": "voice-observe",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "initContainers": [
+              {
+                "command": [
+                  "bash",
+                  "-ec",
+                  "mkdir -p /var/lib/gpu-cr/run/$UID_VALUE /var/lib/gcr-data/$UID_VALUE /tmp/gpu-lock; printf 0 > /var/lib/gpu-cr/run/$UID_VALUE/control; mkdir -p /var/lib/gpu-cr/run/00000000-0000-4000-8000-000000000002 /var/lib/gcr-data/00000000-0000-4000-8000-000000000002; printf 0 > /var/lib/gpu-cr/run/00000000-0000-4000-8000-000000000002/control; cp /blob-seed/data.blob /var/lib/gcr-data/00000000-0000-4000-8000-000000000002/data.blob; true"
+                ],
+                "env": [
+                  {
+                    "name": "UID_VALUE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "NVIDIA_VISIBLE_DEVICES",
+                    "value": "void"
+                  }
+                ],
+                "image": "docker.io/pytorch/pytorch@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee",
+                "name": "prepare",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/data",
+                    "name": "data",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/opt/gpu-cr",
+                    "name": "lib",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/var/lib/gpu-cr/run",
+                    "name": "run"
+                  },
+                  {
+                    "mountPath": "/var/lib/gcr-data",
+                    "name": "blob"
+                  },
+                  {
+                    "mountPath": "/tmp",
+                    "name": "tmp"
+                  },
+                  {
+                    "mountPath": "/dev/shm",
+                    "name": "shm"
+                  },
+                  {
+                    "mountPath": "/blob-seed",
+                    "name": "blob-seed",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "responseStartTimeoutSeconds": 120,
+            "timeoutSeconds": 120,
+            "volumes": [
+              {
+                "hostPath": {
+                  "path": "/var/lib/qwen-tts-lab",
+                  "type": "Directory"
+                },
+                "name": "data"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/gpu-cr/lib",
+                  "type": "Directory"
+                },
+                "name": "lib"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory"
+                },
+                "name": "run"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory"
+                },
+                "name": "blob"
+              },
+              {
+                "emptyDir": {},
+                "name": "tmp"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory",
+                  "sizeLimit": "2Gi"
+                },
+                "name": "shm"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/voice-service/resident/base-gpu",
+                  "type": "Directory"
+                },
+                "name": "blob-seed"
+              },
+              {
+                "configMap": {
+                  "name": "voice-fast-guard"
+                },
+                "name": "voice-observe"
+              },
+              {
+                "name": "fast-model-code",
+                "configMap": {
+                  "name": "voice-fast-model"
+                }
+              }
+            ],
+            "tolerations": [
+              {
+                "key": "node-role.kubernetes.io/control-plane",
+                "operator": "Exists",
+                "effect": "NoSchedule"
+              }
+            ]
+          }
+        }
+      }
+    }

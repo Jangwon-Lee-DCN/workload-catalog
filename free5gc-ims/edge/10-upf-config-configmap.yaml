@@ -1,0 +1,36 @@
+apiVersion: v1
+data:
+  upfcfg.yaml: |
+    version: 1.0.3
+    description: UPF initial local configuration
+
+    pfcp:
+      addr: @{upf-n4-ip} # kpt-set: ${upf-n4-ip}
+      nodeID: @{upf-n4-ip} # kpt-set: ${upf-n4-ip}
+      retransTimeout: 1s
+      maxRetrans: 3
+
+    gtpu:
+      forwarder: gtp5g
+      ifList:
+        - addr: @{upf-n3-ip} # kpt-set: ${upf-n3-ip}
+          type: N3
+          name: upf-n3
+
+    dnnList:
+      - dnn: internet # kpt-set: ${dnn}
+        cidr: @{ue-cidr} # kpt-set: ${ue-subnet}
+        natifname: net3
+
+    logger:
+      enable: true
+      level: info
+      reportCaller: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: edge
+  name: upf-config
+  namespace: free5gc
+  annotations:
+    argocd.argoproj.io/sync-wave: '-10'

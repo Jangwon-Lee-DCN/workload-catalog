@@ -1,0 +1,259 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ims-ue-2
+  namespace: ims-lab
+  labels:
+    app: ims-ue-2
+    app.kubernetes.io/part-of: ims-lab
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  containers:
+    - command:
+        - /ueransim/nr-ue
+        - -c
+        - /config/ue.yaml
+      image: docker.io/free5gc/ueransim@sha256:af9bf08769d0a51cd4c108fa2bedb739fce2cfaa8c3396a2db4d869d9939a7f3
+      imagePullPolicy: IfNotPresent
+      name: ue
+      resources:
+        limits:
+          cpu: '1'
+          memory: 256Mi
+        requests:
+          cpu: 100m
+          memory: 64Mi
+      securityContext:
+        privileged: true
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+        - mountPath: /config
+          name: config
+          readOnly: true
+    - command:
+        - sh
+        - -c
+        - until ip -4 -o addr show dev uesimtun0 2>/dev/null | grep -q inet; do sleep 1; done; ip route replace @{n6-cidr} dev uesimtun0; exec python3 /client/ims_client.py --config /credentials/user.json
+      env:
+        - name: GENERATION_TIMEOUT_SECONDS
+          value: '420'
+      image: '@{image-tools}'
+      imagePullPolicy: IfNotPresent
+      name: ims-client
+      ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+      readinessProbe:
+        exec:
+          command:
+            - python3
+            - -c
+            - import json;assert json.load(open('/tmp/ims-state.json'))['registered']
+        failureThreshold: 3
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: '1'
+          memory: 256Mi
+        requests:
+          cpu: 100m
+          memory: 64Mi
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+        - mountPath: /client
+          name: client
+          readOnly: true
+        - mountPath: /credentials
+          name: user
+          readOnly: true
+        - mountPath: /tmp
+          name: results
+        - mountPath: /dashboard
+          name: dashboard
+          readOnly: true
+        - mountPath: /data
+          name: voice-data
+        - mountPath: /generation
+          name: generation-auth
+          readOnly: true
+    - command:
+        - sh
+        - -c
+        - until ip -4 -o addr show dev uesimtun0 2>/dev/null | grep -q inet; do sleep 1; done; exec python3 /generation-code/gateway.py
+      env:
+        - name: GENERATION_PROVIDER
+          value: '@{generation-provider}'
+        - name: GENERATION_LISTEN_HOST
+          value: 127.0.0.1
+        - name: GENERATION_EGRESS_INTERFACE
+          value: uesimtun0
+        - name: GENERATION_AUTH_FILE
+          value: /generation/auth-token
+        - name: GPU_API_BASE
+          valueFrom:
+            secretKeyRef:
+              name: ims-generation-gpu
+              key: gpu-api
+        - name: GPU_API_BASE_FILE
+          value: /gpu-credentials/gpu-api
+        - name: GPU_API_TOKEN_FILE
+          value: /gpu-credentials/gpu-token
+        - name: ELEVEN_API_KEY_FILE
+          value: /provider/api-key
+      image: '@{image-tools}'
+      imagePullPolicy: IfNotPresent
+      name: generation-adapter
+      readinessProbe:
+        exec:
+          command:
+            - python3
+            - -c
+            - import json,urllib.request;assert json.load(urllib.request.urlopen('http://127.0.0.1:8082/healthz',timeout=2))['ok']
+        failureThreshold: 3
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: '1'
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+        - mountPath: /generation-code
+          name: generation-code
+          readOnly: true
+        - mountPath: /generation
+          name: generation-auth
+          readOnly: true
+        - name: generation-gpu
+          mountPath: /gpu-credentials
+          readOnly: true
+        - name: generation-provider
+          mountPath: /provider
+          readOnly: true
+  dnsConfig:
+    nameservers:
+      - '@{core-worker-ip}'
+    options:
+      - name: ndots
+        value: '1'
+  dnsPolicy: None
+  enableServiceLinks: true
+  nodeName: '@{edge-node-name}'
+  nodeSelector:
+    kubernetes.io/hostname: '@{edge-node-name}'
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccountName: ims-bootstrap
+  terminationGracePeriodSeconds: 30
+  tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+  volumes:
+    - name: config
+      secret:
+        defaultMode: 420
+        secretName: ims-ue-2-config
+    - name: client
+      projected:
+        defaultMode: 420
+        sources:
+          - configMap:
+              name: ims-client-code
+          - configMap:
+              name: ims-sample-1001
+          - configMap:
+              name: ims-sample-1002
+    - name: user
+      secret:
+        defaultMode: 420
+        secretName: ims-ue-2-user
+    - emptyDir: {}
+      name: results
+    - configMap:
+        defaultMode: 420
+        name: ims-dashboard-web
+      name: dashboard
+    - hostPath:
+        path: /var/lib/ims-lab/ue-1002
+        type: DirectoryOrCreate
+      name: voice-data
+    - name: generation-auth
+      secret:
+        defaultMode: 420
+        secretName: ims-generation-auth
+    - configMap:
+        defaultMode: 420
+        name: ims-generation-code
+      name: generation-code
+    - name: generation-gpu
+      secret:
+        secretName: ims-generation-gpu
+        defaultMode: 256
+    - name: generation-provider
+      secret:
+        secretName: ims-generation-provider
+        defaultMode: 256
+    - name: bootstrap-code
+      configMap:
+        name: ims-bootstrap-code
+    - name: core-readiness
+      secret:
+        secretName: ims-observer-core
+  initContainers:
+    - name: wait-core-dependencies
+      image: '@{image-tools}'
+      imagePullPolicy: IfNotPresent
+      command:
+        - python3
+        - /bootstrap/wait_dependencies.py
+        - ue
+      env:
+        - name: CORE_API
+          valueFrom:
+            secretKeyRef:
+              name: ims-observer-core
+              key: server
+        - name: AMF_IP
+          value: '@{amf-n2-ip}'
+        - name: PCSCF_IP
+          value: '@{pcscf-ip}'
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi
+      volumeMounts:
+        - name: bootstrap-code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: core-readiness
+          mountPath: /core
+          readOnly: true

@@ -1,0 +1,19 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+kind: AWSMachineTemplate
+metadata:
+  name: '@{edge-cluster-name}-control-plane-@{template-revision}'
+  namespace: '@{namespace}'
+  annotations:
+    nephio.org/cluster-name: '@{edge-cluster-name}'
+spec:
+  template:
+    spec:
+      ami:
+        id: '@{node-ami}'
+      iamInstanceProfile: '@{control-plane-iam-profile}'
+      instanceType: '@{control-plane-instance-type}'
+      sshKeyName: '@{ssh-key-name}'
+      rootVolume:
+        size: 100
+      subnet:
+        id: '@{private-subnet-id}'

@@ -1,0 +1,169 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-install
+  namespace: gpu-cr-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-install
+  namespace: gpu-cr-system
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-install
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-install
+  namespace: sasv-restore-lab
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - create
+  - delete
+- apiGroups:
+  - gpu-cr.io
+  resources:
+  - gpucheckpoints
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - serving.knative.dev
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - patch
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  resourceNames:
+  - voice-service-template
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-install
+  namespace: sasv-restore-lab
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-install
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-install
+  namespace: qwen-tts-lab
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - create
+  - delete
+- apiGroups:
+  - gpu-cr.io
+  resources:
+  - gpucheckpoints
+  verbs:
+  - get
+  - create
+- apiGroups:
+  - serving.knative.dev
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - patch
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  resourceNames:
+  - voice-service-template
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-install
+  namespace: qwen-tts-lab
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-install
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-install
+  namespace: voice-system
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gpu-install
+  namespace: voice-system
+subjects:
+- kind: ServiceAccount
+  name: gpu-install
+  namespace: gpu-cr-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-install

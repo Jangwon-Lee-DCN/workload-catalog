@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-profile-bindings
+  namespace: gpu-cr-system
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 18000
+  selector:
+    matchLabels:
+      app: voice-profile-bindings
+  template:
+    metadata:
+      labels:
+        app: voice-profile-bindings
+    spec:
+      serviceAccountName: gpu-install
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: bind
+        image: docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /bootstrap/bootstrap.py
+        - bind
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: '1'
+            memory: 256Mi
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /run-state/services-ready
+          periodSeconds: 3
+        volumeMounts:
+        - name: code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: run
+          mountPath: /run-state
+      volumes:
+      - name: code
+        configMap:
+          name: gpu-install-code
+      - name: run
+        hostPath:
+          path: /run/voice-bootstrap
+          type: DirectoryOrCreate

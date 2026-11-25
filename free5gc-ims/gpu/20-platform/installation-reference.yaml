@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voice-installation-reference
+  namespace: gpu-cr-system
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      serviceAccountName: gpu-install
+      restartPolicy: Never
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: download
+        image: docker.io/jangwonlee/ims-gpu-api@sha256:9f97d0c997ad5bd57ddf9444358f9aaf0725e61b25ec294d87a9624aeb5902ca
+        command:
+        - /opt/voice-api/runtime/bin/python
+        - -c
+        - |-
+          import urllib.request,hashlib,pathlib,subprocess
+          p=pathlib.Path('/data/reference.flac');p.parent.mkdir(exist_ok=True)
+          x=urllib.request.urlopen('https://huggingface.co/datasets/Narsil/asr_dummy/resolve/8d141c84e3f84c54cd7bbaa851d24edd0f559734/1.flac').read()
+          assert hashlib.sha256(x).hexdigest()=='30885601173f96b0d8ddd020dc959b055c6c1582b85a33e3fcab8c4b08ed94c2'
+          p.write_bytes(x)
+          subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-i',str(p),'-ac','1','-ar','24000','-c:a','pcm_s16le','/data/official-reference.wav'],check=True)
+          print('INSTALLATION_REFERENCE_READY')
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        hostPath:
+          path: /var/lib/qwen-tts-lab
+          type: DirectoryOrCreate

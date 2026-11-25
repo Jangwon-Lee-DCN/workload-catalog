@@ -1,0 +1,203 @@
+apiVersion: networking.dcn.ssu.ac.kr/v1alpha1
+kind: ENIPool
+metadata:
+  name: free5gc-fixed-interfaces
+spec:
+  region: '@{aws-region}'
+  vpcID: '@{vpc-id}'
+  exhaustionPolicy: Fail
+  interfaces:
+    - key: core_primary_eni
+      id: '@{core-primary-eni}'
+      privateIP: '@{core-worker-ip}'
+    - key: edge_primary_eni
+      id: '@{edge-primary-eni}'
+      privateIP: '@{edge-worker-ip}'
+    - key: core_n2_eni
+      id: '@{core-n2-eni}'
+      privateIP: '@{core-n2-primary-ip}'
+    - key: core_n4_eni
+      id: '@{core-n4-eni}'
+      privateIP: '@{core-n4-primary-ip}'
+    - key: edge_n2_eni
+      id: '@{edge-n2-eni}'
+      privateIP: '@{edge-n2-primary-ip}'
+    - key: edge_n4_eni
+      id: '@{edge-n4-eni}'
+      privateIP: '@{edge-n4-primary-ip}'
+    - key: edge_n3_eni
+      id: '@{edge-n3-eni}'
+      privateIP: '@{edge-n3-primary-ip}'
+    - key: edge_n6_eni
+      id: '@{edge-n6-eni}'
+      privateIP: '@{edge-n6-primary-ip}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixed-eni-plan
+  namespace: '@{namespace}'
+data:
+  interfaces.json: |-
+    [
+      {
+        "key": "core_primary_eni",
+        "id": "@{core-primary-eni}",
+        "primary": "@{core-worker-ip}",
+        "secondary": [],
+        "deviceIndex": 0,
+        "cluster": "core",
+        "interface": "ens5",
+        "cidr": "172.31.81.0/24"
+      },
+      {
+        "key": "edge_primary_eni",
+        "id": "@{edge-primary-eni}",
+        "primary": "@{edge-worker-ip}",
+        "secondary": [],
+        "deviceIndex": 0,
+        "cluster": "edge",
+        "interface": "ens5",
+        "cidr": "172.31.81.0/24"
+      },
+      {
+        "key": "core_n2_eni",
+        "id": "@{core-n2-eni}",
+        "primary": "@{core-n2-primary-ip}",
+        "secondary": [
+          "@{amf-n2-ip}"
+        ],
+        "deviceIndex": 1,
+        "cluster": "core",
+        "interface": "ens6",
+        "cidr": "172.31.90.0/24"
+      },
+      {
+        "key": "core_n4_eni",
+        "id": "@{core-n4-eni}",
+        "primary": "@{core-n4-primary-ip}",
+        "secondary": [],
+        "deviceIndex": 2,
+        "cluster": "core",
+        "interface": "ens7",
+        "cidr": "172.31.91.0/24"
+      },
+      {
+        "key": "edge_n2_eni",
+        "id": "@{edge-n2-eni}",
+        "primary": "@{edge-n2-primary-ip}",
+        "secondary": [
+          "@{gnb-n2-ip}"
+        ],
+        "deviceIndex": 1,
+        "cluster": "edge",
+        "interface": "ens6",
+        "cidr": "172.31.90.0/24"
+      },
+      {
+        "key": "edge_n4_eni",
+        "id": "@{edge-n4-eni}",
+        "primary": "@{edge-n4-primary-ip}",
+        "secondary": [
+          "@{upf-n4-ip}"
+        ],
+        "deviceIndex": 2,
+        "cluster": "edge",
+        "interface": "ens7",
+        "cidr": "172.31.91.0/24"
+      },
+      {
+        "key": "edge_n3_eni",
+        "id": "@{edge-n3-eni}",
+        "primary": "@{edge-n3-primary-ip}",
+        "secondary": [
+          "@{upf-n3-ip}",
+          "@{gnb-n3-ip}"
+        ],
+        "deviceIndex": 3,
+        "cluster": "edge",
+        "interface": "ens8",
+        "cidr": "172.31.92.0/24"
+      },
+      {
+        "key": "edge_n6_eni",
+        "id": "@{edge-n6-eni}",
+        "primary": "@{edge-n6-primary-ip}",
+        "secondary": [
+          "@{upf-n6-ip}",
+          "@{pcscf-ip}",
+          "@{rtpengine-ip}",
+          "@{mec-ip}"
+        ],
+        "deviceIndex": 4,
+        "cluster": "edge",
+        "interface": "ens9",
+        "cidr": "172.31.93.0/24"
+      }
+    ]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: free5gc-core-fixed-eni-set
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - infrastructure.cluster.x-k8s.io
+        apiVersions:
+          - v1beta1
+          - v1beta2
+        operations:
+          - CREATE
+        resources:
+          - awsmachines
+  matchConditions:
+    - name: fixed-worker
+      expression: object.metadata.namespace == '@{namespace}' && has(object.metadata.annotations) && 'eni.dcn.ssu.ac.kr/interface-key' in object.metadata.annotations && object.metadata.annotations['eni.dcn.ssu.ac.kr/interface-key'] == 'core_primary_eni'
+  validations:
+    - expression: request.dryRun == true || (has(object.spec.networkInterfaces) && object.spec.networkInterfaces == ['@{core-primary-eni}'] && has(object.metadata.annotations) && 'eni.dcn.ssu.ac.kr/reserved-interface-set' in object.metadata.annotations && object.metadata.annotations['eni.dcn.ssu.ac.kr/reserved-interface-set'] == '@{core-primary-eni},@{core-n2-eni},@{core-n4-eni}')
+      message: The fixed worker requires its primary ENI and complete reserved data-interface plan
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: free5gc-core-fixed-eni-set
+spec:
+  policyName: free5gc-core-fixed-eni-set
+  validationActions:
+    - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: free5gc-edge-fixed-eni-set
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - infrastructure.cluster.x-k8s.io
+        apiVersions:
+          - v1beta1
+          - v1beta2
+        operations:
+          - CREATE
+        resources:
+          - awsmachines
+  matchConditions:
+    - name: fixed-worker
+      expression: object.metadata.namespace == '@{namespace}' && has(object.metadata.annotations) && 'eni.dcn.ssu.ac.kr/interface-key' in object.metadata.annotations && object.metadata.annotations['eni.dcn.ssu.ac.kr/interface-key'] == 'edge_primary_eni'
+  validations:
+    - expression: request.dryRun == true || (has(object.spec.networkInterfaces) && object.spec.networkInterfaces == ['@{edge-primary-eni}'] && has(object.metadata.annotations) && 'eni.dcn.ssu.ac.kr/reserved-interface-set' in object.metadata.annotations && object.metadata.annotations['eni.dcn.ssu.ac.kr/reserved-interface-set'] == '@{edge-primary-eni},@{edge-n2-eni},@{edge-n4-eni},@{edge-n3-eni},@{edge-n6-eni}')
+      message: The fixed worker requires its primary ENI and complete reserved data-interface plan
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: free5gc-edge-fixed-eni-set
+spec:
+  policyName: free5gc-edge-fixed-eni-set
+  validationActions:
+    - Deny

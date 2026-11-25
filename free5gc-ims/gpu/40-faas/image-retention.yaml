@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: local-image-retention
+  namespace: sasv-restore-lab
+spec:
+  selector:
+    matchLabels:
+      app: local-image-retention
+  template:
+    metadata:
+      labels:
+        app: local-image-retention
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: detector
+        image: localhost/sasv-api-secure:baseline
+        imagePullPolicy: Never
+        command:
+        - /bin/sh
+        - -ec
+        - exec sleep infinity
+        env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 2m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      - name: gateway
+        image: docker.io/jangwonlee/ims-gpu-api@sha256:9f97d0c997ad5bd57ddf9444358f9aaf0725e61b25ec294d87a9624aeb5902ca
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        - exec sleep infinity
+        env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 2m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule

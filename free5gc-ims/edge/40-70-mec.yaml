@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ims-mec
+  namespace: ims-lab
+  labels:
+    app: ims-mec
+    app.kubernetes.io/part-of: ims-lab
+  annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"name": "ims-inspection-n6", "interface": "n6"}]'
+    argocd.argoproj.io/sync-wave: '0'
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: '@{edge-node-name}'
+  containers:
+    - name: mec
+      image: '@{image-tools}'
+      imagePullPolicy: IfNotPresent
+      command:
+        - python3
+        - /mec/service.py
+      ports:
+        - name: health
+          containerPort: 8084
+      volumeMounts:
+        - name: code
+          mountPath: /mec
+          readOnly: true
+        - name: secrets
+          mountPath: /secrets
+          readOnly: true
+        - name: data
+          mountPath: /data
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: 8084
+        periodSeconds: 3
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: '2'
+          memory: 512Mi
+  volumes:
+    - name: code
+      configMap:
+        name: ims-mec-code
+    - name: secrets
+      projected:
+        defaultMode: 256
+        sources:
+        - secret:
+            name: ims-mec-private
+        - secret:
+            name: ims-generation-gpu
+    - name: data
+      hostPath:
+        path: /var/lib/ims-lab/mec
+        type: DirectoryOrCreate
+    - name: bootstrap-code
+      configMap:
+        name: ims-bootstrap-code
+    - name: core-readiness
+      secret:
+        secretName: ims-observer-core
+  serviceAccountName: ims-bootstrap
+  initContainers:
+    - name: wait-core-dependencies
+      image: '@{image-tools}'
+      imagePullPolicy: IfNotPresent
+      command:
+        - python3
+        - /bootstrap/wait_dependencies.py
+        - mec
+      env:
+        - name: CORE_API
+          valueFrom:
+            secretKeyRef:
+              name: ims-observer-core
+              key: server
+        - name: AMF_IP
+          value: '@{amf-n2-ip}'
+        - name: PCSCF_IP
+          value: '@{pcscf-ip}'
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi
+      volumeMounts:
+        - name: bootstrap-code
+          mountPath: /bootstrap
+          readOnly: true
+        - name: core-readiness
+          mountPath: /core
+          readOnly: true
