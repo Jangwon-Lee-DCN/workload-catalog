@@ -60,7 +60,7 @@ A3에서 CNI·Multus·ArgoCD·클러스터별 저장소가 함께 준비된다. 
 | `phone-hostname` | `voice.<웹 접속용 EIP 주소>.sslip.io`. |
 | `public-subnet-id` | Core·Edge VPC에 준비한 공개 subnet ID. |
 | `public-eip-allocation-id` | 같은 웹 접속용 EIP의 Allocation ID. |
-| `public-source-cidrs` | 기존 학교망·접속 대역을 유지하면 수정 없음. 추가할 대역이 있을 때만 변경. |
+| `public-source-cidrs` | 기본값 `0.0.0.0/0`은 전체 IPv4 접속 허용. 특정 대역으로 제한할 때만 변경. |
 
 HTTPS 인증서와 NLB는 Edge 패키지에서 생성한다. 인증서 파일을 따로 만들거나 입력하지 않는다.
 

@@ -51,7 +51,7 @@ data:
   public-service-name: ims-public-gateway
   public-subnet-id: subnet-0123456789abcdef0
   public-eip-allocation-id: eipalloc-0123456789abcdef0
-  public-source-cidrs: 203.253.13.0/24,203.253.17.213/32,211.231.103.0/24,211.181.188.0/24
+  public-source-cidrs: 0.0.0.0/0
   tls-issuer-name: ims-phone-selfsigned
   tls-issuer-kind: Issuer
   image-tools: docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25

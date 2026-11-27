@@ -49,7 +49,7 @@
 | `public-service-name` | `ims-public-gateway` | AWS CCM이 NLB를 생성할 LoadBalancer Service 이름. |
 | `public-subnet-id` | `subnet-0123456789abcdef0` | Edge VPC의 IGW 연결 공개 서브넷 ID. |
 | `public-eip-allocation-id` | `eipalloc-0123456789abcdef0` | 위 DNS 주소에 대응하는 미연결 EIP Allocation ID. |
-| `public-source-cidrs` | `203.253.13.0/24,203.253.17.213/32,211.231.103.0/24,211.181.188.0/24` | 공개 웹 화면의 접근 허용 CIDR. 쉼표로 구분. |
+| `public-source-cidrs` | `0.0.0.0/0` | 공개 웹 화면의 접근 허용 CIDR. 기본값은 전체 IPv4 허용. 여러 대역은 쉼표로 구분. |
 | `tls-issuer-name` | `ims-phone-selfsigned` | Edge HTTPS 인증서 발급자. 기본값 유지. |
 | `tls-issuer-kind` | `Issuer` | 기본값 유지. |
 | `image-tools` | `docker.io/jangwonlee/ims-demo-runtime@sha256:73f64e0aa6aa164b5603b03ad8d4f33e4ac9991cb8c4e9fd26a2ebe77548ae25` | 기본값 유지. Kubernetes가 공개 Docker Hub에서 자동 다운로드. |
