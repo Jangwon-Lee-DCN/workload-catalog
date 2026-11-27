@@ -93,12 +93,14 @@ spec:
             if [[ -n "${missing[*]}" ]]; then apt-get install -y "${missing[@]}"; fi
             modprobe sctp
             printf 'sctp\n' > /etc/modules-load.d/ims-sctp.conf
-            cat > /etc/sysctl.d/90-ims-forwarding.conf <<'EOF'
+            # Apply after the CAPA image's 99-sysctl.conf on every boot.
+            cat > /etc/sysctl.d/99-z-ims-forwarding.conf <<'EOF'
             net.ipv4.ip_forward=1
             net.ipv4.conf.all.rp_filter=0
             net.ipv4.conf.default.rp_filter=0
+            net.ipv4.conf.*.rp_filter=0
             EOF
-            sysctl --system
+            /usr/lib/systemd/systemd-sysctl
             for setting in /proc/sys/net/ipv4/conf/*/rp_filter; do printf 0 > "$setting"; done
             if [[ "$role" == edge ]] && [[ "$(modinfo -F version gtp5g 2>/dev/null || true)" != 0.8.6 ]]; then
               install -d /opt/ims-build
